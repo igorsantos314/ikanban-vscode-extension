@@ -1,0 +1,155 @@
+import { describe, expect, it } from 'vitest';
+import type { BoardSnapshot, TaskView } from '../../shared/board';
+import {
+  boardReducer,
+  computeMoveTarget,
+  initialBoardState,
+  tasksForColumn,
+} from './boardState';
+
+function task(overrides: Partial<TaskView> = {}): TaskView {
+  return {
+    id: 'task-1',
+    title: 'Task',
+    description: '',
+    columnId: 'backlog',
+    tags: [],
+    priority: 'medium',
+    position: 1024,
+    checklists: [],
+    createdAt: '2026-11-18T10:00:00.000Z',
+    updatedAt: '2026-11-18T10:00:00.000Z',
+    revision: 'rev-1',
+    ...overrides,
+  };
+}
+
+function snapshot(tasks: TaskView[] = []): BoardSnapshot {
+  return {
+    workspaceName: 'Workspace',
+    board: { version: 1, name: 'Board', columnIds: ['backlog', 'done'], revision: 'board-rev' },
+    columns: [
+      { id: 'backlog', title: 'Backlog', color: '#64748b', revision: 'a', taskCount: 0 },
+      { id: 'done', title: 'Done', color: '#22c55e', revision: 'b', taskCount: 0 },
+    ],
+    tasks,
+    issues: [],
+    canInitialize: false,
+  };
+}
+
+describe('boardReducer', () => {
+  it('determines ready, empty and error states', () => {
+    expect(
+      boardReducer(initialBoardState, { type: 'loaded', snapshot: snapshot() }).status,
+    ).toBe('ready');
+    expect(
+      boardReducer(initialBoardState, {
+        type: 'loaded',
+        snapshot: { ...snapshot(), board: null, columns: [], canInitialize: true },
+      }).status,
+    ).toBe('empty');
+    expect(
+      boardReducer(initialBoardState, {
+        type: 'loaded',
+        snapshot: { ...snapshot(), board: null, columns: [], canInitialize: false },
+      }).status,
+    ).toBe('error');
+  });
+
+  it('patches a single task and recalculates column counts', () => {
+    const loaded = boardReducer(initialBoardState, {
+      type: 'loaded',
+      snapshot: snapshot([task()]),
+    });
+    const updated = boardReducer(loaded, {
+      type: 'upsert-task',
+      task: task({ title: 'Updated' }),
+    });
+    expect(updated.snapshot?.tasks[0]?.title).toBe('Updated');
+    expect(updated.snapshot?.columns[0]?.taskCount).toBe(1);
+  });
+
+  it('moves a task between columns when patched', () => {
+    const loaded = boardReducer(initialBoardState, {
+      type: 'loaded',
+      snapshot: snapshot([task()]),
+    });
+    const moved = boardReducer(loaded, {
+      type: 'upsert-task',
+      task: task({ columnId: 'done', position: 1024 }),
+    });
+    expect(moved.snapshot?.columns[0]?.taskCount).toBe(0);
+    expect(moved.snapshot?.columns[1]?.taskCount).toBe(1);
+  });
+
+  it('removes a task and updates counts', () => {
+    const loaded = boardReducer(initialBoardState, {
+      type: 'loaded',
+      snapshot: snapshot([task()]),
+    });
+    const removed = boardReducer(loaded, { type: 'remove-task', taskId: 'task-1' });
+    expect(removed.snapshot?.tasks).toEqual([]);
+    expect(removed.snapshot?.columns[0]?.taskCount).toBe(0);
+  });
+
+  it('keeps a dialog open when a watcher snapshot arrives', () => {
+    const loaded = boardReducer(initialBoardState, {
+      type: 'loaded',
+      snapshot: snapshot([task()]),
+    });
+    const withDialog = boardReducer(loaded, {
+      type: 'task-dialog',
+      target: { mode: 'edit', task: task() },
+    });
+    const reloaded = boardReducer(withDialog, {
+      type: 'loaded',
+      snapshot: snapshot([task({ title: 'External' })]),
+    });
+    expect(reloaded.taskDialog).not.toBeNull();
+    expect(reloaded.snapshot?.tasks[0]?.title).toBe('External');
+  });
+
+  it('tracks validation panel state and banners', () => {
+    let state = boardReducer(initialBoardState, {
+      type: 'banner',
+      banner: { kind: 'warning', message: 'Issues found' },
+    });
+    expect(state.banner?.message).toBe('Issues found');
+    state = boardReducer(state, { type: 'validation', open: true });
+    expect(state.validationOpen).toBe(true);
+    state = boardReducer(state, { type: 'dismiss-banner' });
+    expect(state.banner).toBeNull();
+  });
+});
+
+describe('computeMoveTarget', () => {
+  const tasks = [
+    task({ id: 'a', position: 1024 }),
+    task({ id: 'b', position: 2048 }),
+    task({ id: 'c', position: 1024, columnId: 'done' }),
+  ];
+
+  it('computes a target when dropping over a task', () => {
+    expect(computeMoveTarget(tasks, 'c', 'a')).toEqual({
+      toColumnId: 'backlog',
+      targetIndex: 0,
+    });
+  });
+
+  it('computes the end of a column when dropping on the column', () => {
+    expect(computeMoveTarget(tasks, 'a', 'column:done')).toEqual({
+      toColumnId: 'done',
+      targetIndex: 1,
+    });
+  });
+
+  it('ignores dropping a task on itself or an unknown target', () => {
+    expect(computeMoveTarget(tasks, 'a', 'a')).toBeNull();
+    expect(computeMoveTarget(tasks, 'a', 'unknown')).toBeNull();
+  });
+
+  it('sorts tasks for a column by position', () => {
+    expect(tasksForColumn(tasks, 'backlog').map((entry) => entry.id)).toEqual(['a', 'b']);
+  });
+});

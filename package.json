@@ -1,41 +1,110 @@
 {
   "name": "ikanban",
-  "displayName": "ikanban",
-  "description": "simple kanban app for local projects",
-  "version": "0.0.1",
+  "displayName": "iKanban",
+  "description": "Local-first Kanban board for VS Code, stored as portable YAML files.",
+  "version": "0.1.0",
+  "publisher": "ikanban",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/igorsantos314/ikanban-vscode-extension.git"
+  },
   "engines": {
     "vscode": "^1.146.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "keywords": [
+    "kanban",
+    "tasks",
+    "yaml",
+    "local-first"
+  ],
+  "activationEvents": [
+    "onCommand:ikanban.initialize",
+    "onCommand:ikanban.open",
+    "onCommand:ikanban.validate",
+    "onCommand:ikanban.refresh",
+    "onWebviewPanel:ikanban.board"
+  ],
   "main": "./out/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited"
+    }
+  },
   "contributes": {
     "commands": [
       {
-        "command": "ikanban.helloWorld",
-        "title": "Hello World"
+        "command": "ikanban.initialize",
+        "title": "Initialize Board",
+        "category": "iKanban"
+      },
+      {
+        "command": "ikanban.open",
+        "title": "Open Board",
+        "category": "iKanban"
+      },
+      {
+        "command": "ikanban.validate",
+        "title": "Validate Board",
+        "category": "iKanban"
+      },
+      {
+        "command": "ikanban.refresh",
+        "title": "Refresh Board",
+        "category": "iKanban"
       }
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src",
-    "test": "vscode-test"
+    "clean": "node -e \"const fs=require('node:fs');for (const dir of ['out','dist']) fs.rmSync(dir,{recursive:true,force:true})\"",
+    "vscode:prepublish": "npm run build",
+    "build:extension": "node -e \"require('node:fs').rmSync('out',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "build:webview": "vite build",
+    "build": "npm run build:extension && npm run build:webview",
+    "compile": "npm run build:extension",
+    "watch": "tsc -w -p tsconfig.json",
+    "check:types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.webview.json",
+    "lint": "eslint src vite.config.ts vitest.config.ts vitest.setup.ts",
+    "test:unit": "vitest run",
+    "test:integration": "npm run build && vscode-test",
+    "test": "npm run test:unit && npm run test:integration",
+    "check": "npm run check:types && npm run lint && npm run test:unit",
+    "package": "npm run build && vsce package"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/vscode": "^1.146.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@tailwindcss/vite": "^4.3.5",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.12",
     "@types/mocha": "^10.0.10",
     "@types/node": "24.x",
-    "typescript-eslint": "^8.61.1",
-    "eslint": "^10.5.0",
-    "typescript": "^6.0.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/vscode": "^1.146.0",
+    "@vitejs/plugin-react": "^6.3.0",
     "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.0.0"
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^4.1.1",
+    "eslint": "^10.5.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "jsdom": "^31.0.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
   },
   "overrides": {
     "diff": "^8.0.4",

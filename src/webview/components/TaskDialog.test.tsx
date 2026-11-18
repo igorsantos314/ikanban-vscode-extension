@@ -111,6 +111,37 @@ describe('TaskDialog', () => {
     expect(screen.getByRole('checkbox')).toBeChecked();
   });
 
+  it('shows read-only creation and last-updated timestamps when editing', () => {
+    render(
+      <TaskDialog
+        task={{ ...existingTask, updatedAt: '2026-11-19T12:30:00.000Z' }}
+        columns={columns}
+        onSave={vi.fn(async () => undefined)}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const metadata = screen.getByLabelText('Task timestamps');
+    expect(metadata.textContent).toContain('Created');
+    expect(metadata.textContent).toContain('Last updated');
+    expect(
+      metadata.querySelector('time[datetime="2026-11-18T10:00:00.000Z"]'),
+    ).not.toBeNull();
+    expect(
+      metadata.querySelector('time[datetime="2026-11-19T12:30:00.000Z"]'),
+    ).not.toBeNull();
+    expect(screen.queryByRole('textbox', { name: /created/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /last updated/i })).not.toBeInTheDocument();
+  });
+
+  it('hides timestamps when creating a task', () => {
+    render(
+      <TaskDialog columns={columns} initialColumnId="backlog" onSave={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    expect(screen.queryByLabelText('Task timestamps')).not.toBeInTheDocument();
+  });
+
   it('prevents duplicate submissions while saving', async () => {
     const user = userEvent.setup();
     let resolveSave: (() => void) | undefined;

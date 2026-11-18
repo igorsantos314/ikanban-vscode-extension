@@ -367,7 +367,7 @@ export function App({ client }: { client?: BoardClientLike }) {
             onShowValidation={() => dispatch({ type: 'validation', open: true })}
           />
           <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-            <div className="board-scroll flex flex-1 items-stretch gap-3 overflow-x-auto p-3">
+            <div className="board-scroll flex min-h-0 flex-1 items-stretch overflow-x-auto">
               {snapshot.columns.map((column, index) => (
                 <BoardColumn
                   key={column.id}

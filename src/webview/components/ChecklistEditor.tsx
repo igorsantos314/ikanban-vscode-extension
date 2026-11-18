@@ -26,9 +26,11 @@ export function ChecklistEditor({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {checklists.length === 0 ? (
-        <p className="text-sm opacity-70">No checklists yet.</p>
+        <p className="text-xs" style={{ color: 'var(--ikanban-muted)' }}>
+          No checklists yet.
+        </p>
       ) : null}
 
       {checklists.map((checklist, checklistIndex) => {
@@ -37,11 +39,10 @@ export function ChecklistEditor({
         return (
           <section
             key={checklist.id}
-            className="rounded border p-3"
-            style={{ borderColor: 'var(--vscode-widget-border)' }}
+            className="checklist-card"
             aria-label={`Checklist ${checklistIndex + 1}`}
           >
-            <div className="flex items-center gap-2">
+            <div className="checklist-header">
               <input
                 className="input flex-1"
                 value={checklist.title}
@@ -51,7 +52,7 @@ export function ChecklistEditor({
                 aria-describedby={titleError ? `checklist-title-${checklist.id}` : undefined}
                 onChange={(event) => updateChecklist(checklist.id, { title: event.target.value })}
               />
-              <span className="text-xs opacity-70" aria-label="Checklist progress">
+              <span className="checklist-progress" aria-label="Checklist progress">
                 {completed}/{checklist.items.length}
               </span>
               <button
@@ -64,19 +65,20 @@ export function ChecklistEditor({
               </button>
             </div>
             {titleError ? (
-              <p id={`checklist-title-${checklist.id}`} role="alert" className="error-text mt-1">
+              <p id={`checklist-title-${checklist.id}`} role="alert" className="error-text">
                 {titleError}
               </p>
             ) : null}
 
-            <div className="mt-3 space-y-2">
+            <div className="mt-1 space-y-1">
               {checklist.items.map((item, itemIndex) => {
                 const itemError = errors[`checklists.${checklist.id}.items.${item.id}.text`];
                 return (
                   <div key={item.id}>
-                    <div className="flex items-center gap-2">
+                    <div className="checklist-row">
                       <input
                         type="checkbox"
+                        className="checklist-checkbox"
                         checked={item.completed}
                         aria-label={`Complete item ${itemIndex + 1} in ${checklist.title || 'checklist'}`}
                         onChange={(event) =>
@@ -131,7 +133,7 @@ export function ChecklistEditor({
 
             <button
               type="button"
-              className="btn mt-3"
+              className="btn self-start"
               onClick={() =>
                 updateChecklist(checklist.id, {
                   items: [
@@ -147,7 +149,7 @@ export function ChecklistEditor({
         );
       })}
 
-      <button type="button" className="btn" onClick={addChecklist}>
+      <button type="button" className="btn self-start" onClick={addChecklist}>
         + Add checklist
       </button>
     </div>

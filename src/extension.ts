@@ -12,11 +12,14 @@ import type { BoardSnapshot } from './shared/board';
 import type { ProtocolResponse } from './shared/protocol';
 import {
   IkanbanError,
+  ValidationError,
   WorkspaceNotAvailableError,
   WorkspaceNotTrustedError,
 } from './domain/errors';
 import { BoardPanel } from './vscode/boardPanel';
+import { installAgentSkill, type InstallAgentSkillResult } from './vscode/agentSkillInstaller';
 import { DiagnosticsManager } from './vscode/diagnosticsManager';
+import { HomeViewProvider } from './vscode/homeView';
 import { MessageRouter } from './vscode/messageRouter';
 import { createBoardSession, type BoardSession } from './vscode/session';
 import {
@@ -148,6 +151,71 @@ export function activate(context: ExtensionContext): IkanbanApi {
     return snapshot;
   };
 
+  const createTask = async (): Promise<void> => {
+    const folder = await resolveFolder();
+    if (!workspace.isTrusted) {
+      throw new WorkspaceNotTrustedError();
+    }
+    const session = getSession(folder);
+    const snapshot = await session.service.loadBoard();
+    if (!snapshot.board || snapshot.columns.length === 0) {
+      throw new ValidationError('Initialize the board before creating a task.');
+    }
+
+    const onlyColumn = snapshot.columns.length === 1 ? snapshot.columns[0] : undefined;
+    let column: { id: string; title: string } | undefined;
+    if (onlyColumn) {
+      column = { id: onlyColumn.id, title: onlyColumn.title };
+    } else {
+      const picked = await window.showQuickPick(
+        snapshot.columns.map((entry) => ({
+          label: entry.title,
+          description: entry.id,
+          columnId: entry.id,
+        })),
+        { placeHolder: 'Select a column for the new task' },
+      );
+      column = picked ? { id: picked.columnId, title: picked.label } : undefined;
+    }
+    if (!column) {
+      return;
+    }
+
+    const title = await window.showInputBox({
+      prompt: 'Task title',
+      placeHolder: 'What needs to be done?',
+      validateInput: (value) =>
+        value.trim().length === 0 ? 'Task title is required.' : undefined,
+    });
+    const normalizedTitle = title?.trim();
+    if (!normalizedTitle) {
+      return;
+    }
+
+    await session.service.createTask({
+      columnId: column.id,
+      title: normalizedTitle,
+      description: '',
+      priority: 'medium',
+      tags: [],
+      checklists: [],
+    });
+    await showPanel(session);
+    void window.showInformationMessage(`Task created in ${column.title}.`);
+  };
+
+  const installSkill = async (): Promise<InstallAgentSkillResult> => {
+    const folder = await resolveFolder();
+    if (!workspace.isTrusted) {
+      throw new WorkspaceNotTrustedError();
+    }
+    return installAgentSkill({
+      extensionUri: context.extensionUri,
+      folder,
+      output,
+    });
+  };
+
   const api: IkanbanApi = {
     initialize,
     open,
@@ -198,6 +266,7 @@ export function activate(context: ExtensionContext): IkanbanApi {
       void window.showInformationMessage('iKanban board initialized.');
     }),
     command('ikanban.open', open),
+    command('ikanban.createTask', createTask),
     command('ikanban.validate', validate, (result) => {
       const snapshot = result as BoardSnapshot;
       const errors = snapshot.issues.filter((issue) => issue.severity === 'error').length;
@@ -211,6 +280,14 @@ export function activate(context: ExtensionContext): IkanbanApi {
       }
     }),
     command('ikanban.refresh', refresh),
+    command('ikanban.installAgentSkill', installSkill, (result) => {
+      const installed = result as InstallAgentSkillResult;
+      const skillPath = workspace.asRelativePath(installed.skillUri, false);
+      const agentsPath = workspace.asRelativePath(installed.agentsUri, false);
+      void window.showInformationMessage(
+        `iKanban AI skill installed at ${skillPath} and ${agentsPath}.`,
+      );
+    }),
     window.registerWebviewPanelSerializer('ikanban.board', {
       deserializeWebviewPanel: async (panel: WebviewPanel) => {
         try {
@@ -234,6 +311,19 @@ export function activate(context: ExtensionContext): IkanbanApi {
         controller.sessions.clear();
       },
     },
+  );
+
+  const homeView = new HomeViewProvider({
+    redirect: async () => {
+      await commands.executeCommand('ikanban.open');
+    },
+    log: (message, error) => logTechnical(output, message, error),
+  });
+  context.subscriptions.push(
+    window.registerWebviewViewProvider('ikanban.home', homeView, {
+      webviewOptions: { retainContextWhenHidden: false },
+    }),
+    homeView,
   );
 
   output.appendLine(`[${new Date().toISOString()}] iKanban activated.`);

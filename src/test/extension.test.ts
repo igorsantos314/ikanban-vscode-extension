@@ -28,10 +28,12 @@ suite('iKanban extension', () => {
 
   setup(async () => {
     await removeBoard();
+    await removeInstalledSkill();
   });
 
   teardown(async () => {
     await removeBoard();
+    await removeInstalledSkill();
   });
 
   async function removeBoard(): Promise<void> {
@@ -40,6 +42,18 @@ suite('iKanban extension', () => {
       await vscode.workspace.fs.delete(directory, { recursive: true });
     } catch {
       // The board may not exist in this test.
+    }
+  }
+
+  async function removeInstalledSkill(): Promise<void> {
+    for (const name of ['skills', 'AGENTS.md']) {
+      try {
+        await vscode.workspace.fs.delete(vscode.Uri.joinPath(root, name), {
+          recursive: true,
+        });
+      } catch {
+        // The skill may not have been installed in this test.
+      }
     }
   }
 
@@ -65,12 +79,96 @@ suite('iKanban extension', () => {
     for (const command of [
       'ikanban.initialize',
       'ikanban.open',
+      'ikanban.createTask',
       'ikanban.validate',
       'ikanban.refresh',
+      'ikanban.installAgentSkill',
     ]) {
       assert.ok(commands.includes(command), `${command} should be registered`);
     }
     assert.ok(!commands.includes('ikanban.helloWorld'));
+  });
+
+  test('contributes the Activity Bar home view, icon and VS Code baseline', async () => {
+    interface Manifest {
+      engines?: { vscode?: string };
+      contributes?: {
+        viewsContainers?: {
+          activitybar?: Array<{ id: string; icon?: string }>;
+        };
+        views?: Record<string, Array<{ id: string; type?: string }>>;
+      };
+    }
+
+    const extension = vscode.extensions.all.find(
+      (candidate) => candidate.packageJSON.name === 'ikanban',
+    );
+    assert.ok(extension, 'iKanban extension should be installed');
+    const manifest = extension.packageJSON as Manifest;
+
+    assert.strictEqual(manifest.engines?.vscode, '^1.147.0');
+    const container = manifest.contributes?.viewsContainers?.activitybar?.find(
+      (candidate) => candidate.id === 'ikanban',
+    );
+    assert.ok(container, 'the iKanban Activity Bar container should be contributed');
+    assert.strictEqual(container.icon, 'resources/ikanban.svg');
+    assert.ok(
+      manifest.contributes?.views?.ikanban?.some(
+        (view) => view.id === 'ikanban.home' && view.type === 'webview',
+      ),
+      'the iKanban webview home view should be contributed',
+    );
+    await vscode.workspace.fs.stat(
+      vscode.Uri.joinPath(extension.extensionUri, 'resources', 'ikanban.svg'),
+    );
+  });
+
+  test('installs the portable agent skill and managed AGENTS pointer', async () => {
+    await vscode.commands.executeCommand('ikanban.installAgentSkill');
+
+    const skillUri = vscode.Uri.joinPath(root, 'skills', 'ikanban', 'SKILL.md');
+    const agentsUri = vscode.Uri.joinPath(root, 'AGENTS.md');
+    const skill = await read(skillUri);
+    assert.match(skill, /^---\nname: ikanban\n/);
+    const installedAgents = await read(agentsUri);
+    assert.ok(installedAgents.includes('<!-- ikanban-skill:start -->'));
+    assert.ok(installedAgents.includes('skills/ikanban/SKILL.md'));
+
+    await vscode.commands.executeCommand('ikanban.installAgentSkill');
+    assert.strictEqual(await read(agentsUri), installedAgents);
+    assert.strictEqual((installedAgents.match(/ikanban-skill:start/g) ?? []).length, 1);
+  });
+
+  test('preserves existing AGENTS content when installing the skill', async () => {
+    const agentsUri = vscode.Uri.joinPath(root, 'AGENTS.md');
+    const existing = '# Existing instructions\n\nKeep this.\n';
+    await vscode.workspace.fs.writeFile(agentsUri, new TextEncoder().encode(existing));
+
+    await vscode.commands.executeCommand('ikanban.installAgentSkill');
+
+    const content = await read(agentsUri);
+    assert.ok(content.startsWith(existing));
+    assert.ok(content.includes('<!-- ikanban-skill:start -->'));
+  });
+
+  test('does not install the agent skill in an untrusted workspace', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(vscode.workspace, 'isTrusted');
+    assert.ok(descriptor);
+    Object.defineProperty(vscode.workspace, 'isTrusted', {
+      configurable: true,
+      value: false,
+    });
+    try {
+      await vscode.commands.executeCommand('ikanban.installAgentSkill');
+    } finally {
+      Object.defineProperty(vscode.workspace, 'isTrusted', descriptor);
+    }
+
+    await assert.rejects(async () => {
+      await vscode.workspace.fs.stat(
+        vscode.Uri.joinPath(root, 'skills', 'ikanban', 'SKILL.md'),
+      );
+    });
   });
 
   test('initializes a board from the command', async () => {
@@ -89,6 +187,80 @@ suite('iKanban extension', () => {
     await vscode.commands.executeCommand('ikanban.open');
     await vscode.commands.executeCommand('ikanban.open');
     assert.strictEqual(api.getOpenPanelCount(), 1);
+  });
+
+  test('sidebar entry redirects to exactly one board panel', async () => {
+    await request<BoardSnapshot>('board/initialize', {});
+    await vscode.commands.executeCommand('workbench.view.extension.ikanban');
+    await waitFor(
+      () => api.getOpenPanelCount(),
+      (count) => count === 1,
+    );
+    await vscode.commands.executeCommand('workbench.view.extension.ikanban');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.strictEqual(api.getOpenPanelCount(), 1);
+  });
+
+  test('creates a task from the command with default fields', async () => {
+    await request<BoardSnapshot>('board/initialize', {});
+    await withTaskPrompts(
+      'Command task',
+      (items) => items.find((item) => item.columnId === 'backlog'),
+      () => vscode.commands.executeCommand('ikanban.createTask'),
+    );
+
+    const snapshot = await request<BoardSnapshot>('board/load', {});
+    const task = snapshot.tasks.find((entry) => entry.title === 'Command task');
+    assert.ok(task);
+    assert.strictEqual(task.columnId, 'backlog');
+    assert.strictEqual(task.description, '');
+    assert.strictEqual(task.priority, 'medium');
+    assert.deepStrictEqual(task.tags, []);
+    assert.deepStrictEqual(task.checklists, []);
+    assert.strictEqual(task.createdAt, task.updatedAt);
+  });
+
+  test('skips the column picker when the board has one column', async () => {
+    let snapshot = await request<BoardSnapshot>('board/initialize', {});
+    for (const id of ['in-progress', 'done']) {
+      snapshot = await request<BoardSnapshot>('column/delete', {
+        id,
+        expectedBoardRevision: snapshot.board!.revision,
+      });
+    }
+
+    await withTaskPrompts(
+      'Single column task',
+      () => {
+        throw new Error('The column picker should not be shown.');
+      },
+      () => vscode.commands.executeCommand('ikanban.createTask'),
+    );
+
+    const loaded = await request<BoardSnapshot>('board/load', {});
+    const task = loaded.tasks.find((entry) => entry.title === 'Single column task');
+    assert.ok(task);
+    assert.strictEqual(task.columnId, 'backlog');
+  });
+
+  test('cancelling the create-task prompt writes nothing', async () => {
+    await request<BoardSnapshot>('board/initialize', {});
+    const before = await request<BoardSnapshot>('board/load', {});
+    await withTaskPrompts(undefined, (items) => items[0], () =>
+      vscode.commands.executeCommand('ikanban.createTask'),
+    );
+    const after = await request<BoardSnapshot>('board/load', {});
+    assert.strictEqual(after.tasks.length, before.tasks.length);
+  });
+
+  test('create task reports an error when the board is not initialized', async () => {
+    await withTaskPrompts('No board', (items) => items[0], () =>
+      vscode.commands.executeCommand('ikanban.createTask'),
+    );
+
+    await assert.rejects(async () => {
+      await vscode.workspace.fs.stat(vscode.Uri.joinPath(root, '.ikanban'));
+    });
   });
 
   test('initialization is idempotent and keeps tasks', async () => {
@@ -307,6 +479,42 @@ suite('iKanban extension', () => {
     });
   });
 });
+
+interface ColumnPick extends vscode.QuickPickItem {
+  columnId: string;
+}
+
+async function withTaskPrompts<T>(
+  title: string | undefined,
+  pick: ((items: readonly ColumnPick[]) => ColumnPick | undefined) | undefined,
+  run: () => PromiseLike<T>,
+): Promise<T> {
+  const input = Object.getOwnPropertyDescriptor(vscode.window, 'showInputBox');
+  const quickPick = Object.getOwnPropertyDescriptor(vscode.window, 'showQuickPick');
+  Object.defineProperty(vscode.window, 'showInputBox', {
+    configurable: true,
+    value: async () => title,
+  });
+  Object.defineProperty(vscode.window, 'showQuickPick', {
+    configurable: true,
+    value: async (items: readonly ColumnPick[]) => pick?.(items),
+  });
+
+  try {
+    return await run();
+  } finally {
+    restoreWindowProperty('showInputBox', input);
+    restoreWindowProperty('showQuickPick', quickPick);
+  }
+}
+
+function restoreWindowProperty(key: string, descriptor: PropertyDescriptor | undefined): void {
+  if (descriptor) {
+    Object.defineProperty(vscode.window, key, descriptor);
+  } else {
+    Reflect.deleteProperty(vscode.window, key);
+  }
+}
 
 async function waitFor<T>(
   read: () => T,

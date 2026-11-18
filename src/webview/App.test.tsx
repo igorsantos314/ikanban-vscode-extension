@@ -148,7 +148,10 @@ describe('App', () => {
     expect(screen.getAllByText('Issue').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Feature').length).toBeGreaterThan(0);
     expect(screen.getByText('Checklist 1/2')).toBeInTheDocument();
-    expect(screen.getAllByText('1 task')).toHaveLength(2);
+    expect(screen.getAllByLabelText('1 task')).toHaveLength(2);
+    expect(
+      document.querySelectorAll('time[datetime="2026-11-18T10:00:00.000Z"]'),
+    ).toHaveLength(2);
   });
 
   it('initializes an empty workspace', async () => {
@@ -246,7 +249,7 @@ describe('App', () => {
     const { client } = fakeClient({ load: snapshot([task({ title: longTitle })]) });
     render(<App client={client} />);
     await screen.findByText(longTitle);
-    expect(screen.getByText(longTitle)).toHaveClass('line-clamp-3');
+    expect(screen.getByText(longTitle)).toHaveClass('task-card-title');
   });
 
   it('shows a retry state when the board cannot be loaded', async () => {

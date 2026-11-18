@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { ColumnView, TaskView } from '../../shared/board';
@@ -40,17 +41,21 @@ export function BoardColumn({
     <section
       ref={setNodeRef}
       className={`board-column ${isOver ? 'board-column-over' : ''}`}
-      style={{ borderTopColor: column.color }}
+      style={{ '--column-color': column.color } as CSSProperties}
       aria-label={`${column.title} column`}
     >
-      <header className="flex items-start justify-between gap-2 border-b px-3 py-2">
-        <div className="min-w-0">
-          <h2 className="truncate font-semibold">{column.title}</h2>
-          <p className="text-xs opacity-70" aria-label={`${tasks.length} tasks`}>
-            {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}
-          </p>
+      <header className="column-header">
+        <div className="column-identity">
+          <span className="column-dot" aria-hidden="true" />
+          <h2 className="column-title">{column.title}</h2>
+          <span
+            className="column-count"
+            aria-label={`${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`}
+          >
+            {tasks.length}
+          </span>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="column-actions">
           <button
             type="button"
             className="icon-button"
@@ -88,7 +93,16 @@ export function BoardColumn({
         </div>
       </header>
 
-      <div className="column-scroll flex flex-1 flex-col gap-2 overflow-y-auto p-2">
+      <div className="column-scroll">
+        <button
+          type="button"
+          className="column-add"
+          onClick={() => onAddTask(column)}
+          aria-label={`Add task to ${column.title}`}
+        >
+          <span aria-hidden="true">+</span> Add task
+        </button>
+
         <SortableContext
           items={tasks.map((task) => task.id)}
           strategy={verticalListSortingStrategy}
@@ -106,22 +120,9 @@ export function BoardColumn({
           ))}
         </SortableContext>
         {tasks.length === 0 ? (
-          <p className="rounded border border-dashed p-4 text-center text-xs opacity-60">
-            No tasks yet
-          </p>
+          <p className="column-empty">No tasks yet</p>
         ) : null}
       </div>
-
-      <footer className="border-t p-2">
-        <button
-          type="button"
-          className="btn w-full"
-          onClick={() => onAddTask(column)}
-          aria-label={`Add task to ${column.title}`}
-        >
-          + Add task
-        </button>
-      </footer>
     </section>
   );
 }

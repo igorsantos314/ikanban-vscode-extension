@@ -3,6 +3,7 @@ import type { TagId } from '../../domain/tags';
 import type { Priority } from '../../domain/types';
 import { PRIORITIES } from '../../domain/types';
 import type { ColumnView, TaskView } from '../../shared/board';
+import { formatTimestamp } from '../formatTimestamp';
 import { ChecklistEditor } from './ChecklistEditor';
 import type { ChecklistDraftState } from './checklistDraft';
 import { Modal } from './Modal';
@@ -157,7 +158,15 @@ export function TaskDialog({
 
   return (
     <Modal
-      title={task ? 'Edit task' : 'Create task'}
+      title={task ? task.title : 'Create task'}
+      titleAdornment={
+        <span
+          className={`priority-badge priority-${priority}`}
+          title={`Priority: ${PRIORITY_LABELS[priority]}`}
+        >
+          {PRIORITY_LABELS[priority]}
+        </span>
+      }
       wide
       onRequestClose={requestClose}
       footer={
@@ -191,7 +200,7 @@ export function TaskDialog({
       }
     >
       <form
-        className="space-y-4"
+        className="dialog-form"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
@@ -203,79 +212,112 @@ export function TaskDialog({
           </p>
         ) : null}
 
-        <label className="field">
-          <span>Title</span>
-          <input
-            className="input"
-            value={title}
-            aria-invalid={Boolean(errors.title)}
-            aria-describedby={errors.title ? 'task-title-error' : undefined}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </label>
-        {errors.title ? (
-          <p id="task-title-error" role="alert" className="error-text">
-            {errors.title}
-          </p>
+        {task ? (
+          <dl aria-label="Task timestamps" className="dialog-metadata">
+            <div className="dialog-metadata-item">
+              <dt className="dialog-metadata-label">Created</dt>
+              <dd>
+                <time dateTime={task.createdAt} title={task.createdAt}>
+                  {formatTimestamp(task.createdAt)}
+                </time>
+              </dd>
+            </div>
+            <div className="dialog-metadata-item">
+              <dt className="dialog-metadata-label">Last updated</dt>
+              <dd>
+                <time dateTime={task.updatedAt} title={task.updatedAt}>
+                  {formatTimestamp(task.updatedAt)}
+                </time>
+              </dd>
+            </div>
+          </dl>
         ) : null}
 
-        <label className="field">
-          <span>Description</span>
-          <textarea
-            className="input min-h-24"
-            value={description}
-            rows={4}
-            onChange={(event) => setDescription(event.target.value)}
-          />
-        </label>
-
-        <div className="grid gap-4 sm:grid-cols-2">
+        <section className="dialog-section" aria-labelledby="task-details-heading">
+          <h3 id="task-details-heading" className="dialog-section-title">
+            Details
+          </h3>
           <label className="field">
-            <span>Column</span>
-            <select
+            <span>Title</span>
+            <input
               className="input"
-              value={columnId}
-              aria-invalid={Boolean(errors.columnId)}
-              aria-describedby={errors.columnId ? 'task-column-error' : undefined}
-              onChange={(event) => setColumnId(event.target.value)}
-            >
-              {columns.map((column) => (
-                <option key={column.id} value={column.id}>
-                  {column.title}
-                </option>
-              ))}
-            </select>
+              value={title}
+              aria-invalid={Boolean(errors.title)}
+              aria-describedby={errors.title ? 'task-title-error' : undefined}
+              onChange={(event) => setTitle(event.target.value)}
+            />
           </label>
+          {errors.title ? (
+            <p id="task-title-error" role="alert" className="error-text">
+              {errors.title}
+            </p>
+          ) : null}
+
           <label className="field">
-            <span>Priority</span>
-            <select
-              className="input"
-              value={priority}
-              onChange={(event) => setPriority(event.target.value as Priority)}
-            >
-              {PRIORITIES.map((value) => (
-                <option key={value} value={value}>
-                  {PRIORITY_LABELS[value]}
-                </option>
-              ))}
-            </select>
+            <span>Description</span>
+            <textarea
+              className="input min-h-24"
+              value={description}
+              rows={4}
+              onChange={(event) => setDescription(event.target.value)}
+            />
           </label>
-        </div>
-        {errors.columnId ? (
-          <p id="task-column-error" role="alert" className="error-text">
-            {errors.columnId}
-          </p>
-        ) : null}
+        </section>
 
-        <div className="field">
-          <span>Tags</span>
-          <TagSelector selected={tags} onChange={setTags} />
-        </div>
+        <section className="dialog-section" aria-labelledby="task-organization-heading">
+          <h3 id="task-organization-heading" className="dialog-section-title">
+            Organization
+          </h3>
+          <div className="dialog-grid">
+            <label className="field">
+              <span>Column</span>
+              <select
+                className="input"
+                value={columnId}
+                aria-invalid={Boolean(errors.columnId)}
+                aria-describedby={errors.columnId ? 'task-column-error' : undefined}
+                onChange={(event) => setColumnId(event.target.value)}
+              >
+                {columns.map((column) => (
+                  <option key={column.id} value={column.id}>
+                    {column.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Priority</span>
+              <select
+                className="input"
+                value={priority}
+                onChange={(event) => setPriority(event.target.value as Priority)}
+              >
+                {PRIORITIES.map((value) => (
+                  <option key={value} value={value}>
+                    {PRIORITY_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {errors.columnId ? (
+            <p id="task-column-error" role="alert" className="error-text">
+              {errors.columnId}
+            </p>
+          ) : null}
 
-        <div className="field">
-          <span>Checklists</span>
+          <div className="field">
+            <span>Tags</span>
+            <TagSelector selected={tags} onChange={setTags} />
+          </div>
+        </section>
+
+        <section className="dialog-section" aria-labelledby="task-checklists-heading">
+          <h3 id="task-checklists-heading" className="dialog-section-title">
+            Checklists
+          </h3>
           <ChecklistEditor checklists={checklists} errors={errors} onChange={setChecklists} />
-        </div>
+        </section>
       </form>
     </Modal>
   );

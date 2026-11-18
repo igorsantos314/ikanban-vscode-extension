@@ -5,12 +5,14 @@ const FOCUSABLE =
 
 export function Modal({
   title,
+  titleAdornment,
   onRequestClose,
   children,
   footer,
   wide = false,
 }: {
   title: string;
+  titleAdornment?: ReactNode;
   onRequestClose(): void;
   children: ReactNode;
   footer?: ReactNode;
@@ -68,7 +70,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="modal-backdrop"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           closeRef.current();
@@ -81,22 +83,15 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`flex max-h-[90vh] w-full flex-col overflow-hidden rounded-lg border shadow-xl ${
-          wide ? 'max-w-3xl' : 'max-w-lg'
-        }`}
-        style={{
-          background: 'var(--vscode-editorWidget-background)',
-          borderColor: 'var(--vscode-widget-border)',
-          color: 'var(--vscode-foreground)',
-        }}
+        className={`modal-panel ${wide ? 'modal-wide' : ''}`}
       >
-        <div
-          className="flex items-center justify-between border-b px-5 py-3"
-          style={{ borderColor: 'var(--vscode-widget-border)' }}
-        >
-          <h2 id={titleId} className="text-base font-semibold">
-            {title}
-          </h2>
+        <div className="modal-header">
+          <div className="modal-title-row">
+            <h2 id={titleId} className="modal-title">
+              {title}
+            </h2>
+            {titleAdornment}
+          </div>
           <button
             type="button"
             className="icon-button"
@@ -106,15 +101,8 @@ export function Modal({
             ×
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
-        {footer ? (
-          <div
-            className="flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3"
-            style={{ borderColor: 'var(--vscode-widget-border)' }}
-          >
-            {footer}
-          </div>
-        ) : null}
+        <div className="modal-body">{children}</div>
+        {footer ? <div className="modal-footer">{footer}</div> : null}
       </div>
     </div>
   );

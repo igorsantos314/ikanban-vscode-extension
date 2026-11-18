@@ -7,15 +7,18 @@ iKanban is a local-first Kanban board for Visual Studio Code. It stores every co
 - Kanban columns with titles, colors, ordering and task counts.
 - One YAML file per task, with titles, descriptions, priorities, visual tags and nested checklists.
 - Drag-and-drop task moves between columns and reordering within a column, plus keyboard-accessible move controls.
-- A reusable create/edit task dialog with field validation, saving state, discard confirmation and checklist editing.
+- A reusable create/edit task dialog with field validation, saving state, discard confirmation, checklist editing and read-only creation/last-updated timestamps.
+- A Command Palette action that creates a task from a title and column prompt and opens the board.
+- A portable agent skill that any AI assistant can install into the workspace to create, update, move, reorder and remove tasks directly.
 - Validation of YAML syntax, document schemas and cross-file relationships, published to the VS Code Problems panel.
 - External file-change detection with debounced refresh and optimistic revision checks to prevent silently overwriting manual edits.
+- A refined board and task dialog with layered surfaces, colored priority badges, neutral tag chips, compact metadata and consistent hover/focus states.
 - Theme-aware React interface built with Vite and Tailwind CSS.
-- No network access, authentication, cloud storage, SQLite or AI integration.
+- No network access, authentication, cloud storage, SQLite or database. The agent skill is a local Markdown contract, not a runtime AI integration or MCP server.
 
 ## Requirements
 
-- VS Code 1.146 or newer.
+- VS Code 1.147 or newer.
 - A trusted workspace folder. iKanban refuses to write board files in Restricted Mode.
 - Local or remote workspace filesystem providers that support reading, writing, deleting, creating directories and renaming files through `vscode.workspace.fs`.
 
@@ -41,10 +44,44 @@ For continuous Extension Host compilation use `npm run watch`; rebuild the webvi
 |---|---|
 | `iKanban: Initialize Board` | Creates `.ikanban` with `board.yaml` and the default **Backlog**, **In Progress** and **Done** columns. Idempotent and never overwrites an existing board. |
 | `iKanban: Open Board` | Opens or reveals the board panel and refreshes it from disk. Shows an initialization state when no board exists. |
+| `iKanban: Create New Task` | Prompts for a title and an existing column, creates the task with default fields and opens the board so details can be added in the task dialog. |
 | `iKanban: Validate Board` | Reloads the board, publishes diagnostics and reports an issue summary. |
 | `iKanban: Refresh Board` | Reloads the board and updates the open panel. |
+| `iKanban: Install AI Skill` | Installs the portable agent skill at `skills/ikanban/SKILL.md` and adds a managed pointer to `AGENTS.md`. |
 
 In a multi-root workspace, iKanban asks which workspace folder to use and remembers the choice for the session. Initialization always asks again so the board is created in the intended folder.
+
+## Activity Bar
+
+After installation, iKanban adds an entry to the VS Code Activity Bar. Selecting the iKanban icon shows the home view and redirects you to the board screen, opening the board panel or revealing and refreshing it when it is already open. The home view also provides actions to open, initialize and validate the board, and stays available if the board cannot be opened.
+
+The board itself remains an editor panel; the Activity Bar view only redirects to it. The Activity Bar position (left or right) follows your VS Code layout settings, and iKanban does not move it.
+
+## AI agents and the skill
+
+iKanban ships a portable, provider-neutral agent skill. It is a plain `SKILL.md` contract that any AI assistant with workspace file access can read and follow directly; it does not require an MCP server, a network service or a specific model.
+
+Install it in the selected workspace with **iKanban: Install AI Skill** (`ikanban.installAgentSkill`). The command writes:
+
+```text
+skills/ikanban/SKILL.md   # the portable skill
+AGENTS.md                 # managed pointer block for agents
+```
+
+`AGENTS.md` is created when missing. If it already exists, only the delimited iKanban block is added or replaced, so the rest of the project instructions are preserved. Running the command again is safe and refreshes the skill without duplicating the block.
+
+Agents that discover `AGENTS.md` or `skills/` can then use the skill directly to:
+
+- create a task in the backlog or any existing column;
+- update a task while preserving its ID and creation date;
+- move a task between columns to change its status;
+- reorder tasks within a column;
+- add, complete or remove checklist items;
+- delete a task.
+
+The skill documents the `.ikanban` layout, the full task schema, UUID rules, ISO 8601 UTC timestamps, position spacing, supported tags and the safety rules for direct edits. In particular, an agent must set `createdAt` and `updatedAt` when creating a task, keep `createdAt` unchanged afterwards, refresh `updatedAt` on every successful change or move, never add a status field, use only columns from `board.yaml` and validate the result. The extension's file watcher and Problems panel still report invalid external edits.
+
+The same skill file is useful to humans who want to edit the board by hand or write their own automation. See [Board storage format](#board-storage-format) for the exact YAML shape.
 
 ## Using the board
 
@@ -57,6 +94,8 @@ A column can only be deleted when it contains no task files. The final remaining
 ### Tasks
 
 Use **+ Add task** in a column, or open an existing card to edit it. Every column also displays its task count. Tasks can be moved with drag-and-drop or with the arrow buttons on each card. The card shows its priority, visual tags and overall checklist progress.
+
+When an existing task is open, the dialog shows read-only **Created** and **Last updated** timestamps. The creation time never changes; the last-updated time is refreshed after every successful edit, move, reorder or checklist change.
 
 Deleting a task asks for confirmation and removes only that task's YAML file.
 

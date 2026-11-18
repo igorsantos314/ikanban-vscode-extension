@@ -26,19 +26,24 @@ afterEach(async () => {
   }
 });
 
-async function setup(): Promise<{ workspace: TestWorkspace; service: BoardService }> {
+async function setup(): Promise<{
+  workspace: TestWorkspace;
+  service: BoardService;
+  clock: FixedClock;
+}> {
   const workspace = await createTestWorkspace();
   workspaces.push(workspace);
+  const clock = new FixedClock();
   const service = new BoardService({
     board: workspace.board,
     tasks: workspace.tasks,
-    clock: new FixedClock(),
+    clock,
     ids: new SequenceIdGenerator(),
     workspaceName: 'Test Workspace',
   });
   services.push(service);
   await service.initializeBoard();
-  return { workspace, service };
+  return { workspace, service, clock };
 }
 
 function taskInput(overrides: Partial<CreateTaskInput> = {}): CreateTaskInput {
@@ -315,6 +320,86 @@ describe('task use cases', () => {
     });
     const snapshot = await service.loadBoard();
     expect(snapshot.tasks).toHaveLength(0);
+  });
+
+  it('maintains createdAt and updatedAt across every mutation path', async () => {
+    const { service, clock } = await setup();
+    const task = await service.createTask(taskInput({ title: 'Timestamped' }));
+    expect(task.createdAt).toBe('2026-11-18T10:00:00.000Z');
+    expect(task.updatedAt).toBe(task.createdAt);
+
+    clock.advance(1000);
+    const updated = await service.updateTask({
+      taskId: task.id,
+      columnId: 'backlog',
+      expectedRevision: task.revision,
+      title: 'Timestamped v2',
+      description: '',
+      priority: 'medium',
+      tags: [],
+    });
+    expect(updated.createdAt).toBe(task.createdAt);
+    expect(updated.updatedAt).toBe('2026-11-18T10:00:01.000Z');
+
+    clock.advance(1000);
+    let snapshot = await service.moveTask({
+      taskId: task.id,
+      fromColumnId: 'backlog',
+      toColumnId: 'in-progress',
+      targetIndex: 0,
+      expectedRevision: updated.revision,
+    });
+    const moved = snapshot.tasks.find((entry) => entry.id === task.id)!;
+    expect(moved.createdAt).toBe(task.createdAt);
+    expect(moved.updatedAt).toBe('2026-11-18T10:00:02.000Z');
+
+    clock.advance(1000);
+    snapshot = await service.moveTask({
+      taskId: task.id,
+      fromColumnId: 'in-progress',
+      toColumnId: 'in-progress',
+      targetIndex: 0,
+      expectedRevision: moved.revision,
+    });
+    const reordered = snapshot.tasks.find((entry) => entry.id === task.id)!;
+    expect(reordered.createdAt).toBe(task.createdAt);
+    expect(reordered.updatedAt).toBe('2026-11-18T10:00:03.000Z');
+
+    clock.advance(1000);
+    const checklist = await service.createChecklist({
+      taskId: task.id,
+      columnId: 'in-progress',
+      expectedRevision: reordered.revision,
+      title: 'Checks',
+    });
+    expect(checklist.createdAt).toBe(task.createdAt);
+    expect(checklist.updatedAt).toBe('2026-11-18T10:00:04.000Z');
+    const checklistId = checklist.checklists[0]?.id;
+    expect(checklistId).toBeDefined();
+
+    clock.advance(1000);
+    const item = await service.createChecklistItem({
+      taskId: task.id,
+      columnId: 'in-progress',
+      expectedRevision: checklist.revision,
+      checklistId: checklistId!,
+      text: 'One',
+    });
+    expect(item.createdAt).toBe(task.createdAt);
+    expect(item.updatedAt).toBe('2026-11-18T10:00:05.000Z');
+    const itemId = item.checklists[0]?.items[0]?.id;
+    expect(itemId).toBeDefined();
+
+    clock.advance(1000);
+    const toggled = await service.toggleChecklistItem({
+      taskId: task.id,
+      columnId: 'in-progress',
+      expectedRevision: item.revision,
+      checklistId: checklistId!,
+      itemId: itemId!,
+    });
+    expect(toggled.createdAt).toBe(task.createdAt);
+    expect(toggled.updatedAt).toBe('2026-11-18T10:00:06.000Z');
   });
 
   it('rejects invalid task data and unknown columns', async () => {

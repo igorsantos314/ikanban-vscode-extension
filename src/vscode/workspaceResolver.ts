@@ -18,6 +18,20 @@ export type ResolveFolderOptions = { alwaysPick?: boolean };
 export class WorkspaceResolver {
   constructor(private readonly dependencies: WorkspaceResolverDependencies) {}
 
+  peek(): WorkspaceFolderLike | undefined {
+    const folders = this.dependencies.getFolders();
+    if (folders.length === 0) {
+      return undefined;
+    }
+    if (folders.length === 1) {
+      return folders[0];
+    }
+    const remembered = this.dependencies.getRememberedUri();
+    return remembered
+      ? folders.find((folder) => folder.uri.toString() === remembered)
+      : undefined;
+  }
+
   async resolve(options: ResolveFolderOptions = {}): Promise<WorkspaceFolderLike | undefined> {
     const folders = this.dependencies.getFolders();
     if (folders.length === 0) {

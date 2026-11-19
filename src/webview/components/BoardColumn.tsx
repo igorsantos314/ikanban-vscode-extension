@@ -2,11 +2,14 @@ import type { CSSProperties } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { ColumnView, TaskView } from '../../shared/board';
+import type { CardLayout } from '../cardLayout';
 import { TaskCard } from './TaskCard';
 
 export function BoardColumn({
   column,
   tasks,
+  cardLayout,
+  isDropTarget,
   canMoveLeft,
   canMoveRight,
   onAddTask,
@@ -22,6 +25,8 @@ export function BoardColumn({
 }: {
   column: ColumnView;
   tasks: readonly TaskView[];
+  cardLayout: CardLayout;
+  isDropTarget?: boolean;
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onAddTask(column: ColumnView): void;
@@ -40,7 +45,7 @@ export function BoardColumn({
   return (
     <section
       ref={setNodeRef}
-      className={`board-column ${isOver ? 'board-column-over' : ''}`}
+      className={`board-column ${isOver || isDropTarget ? 'board-column-over' : ''}`}
       style={{ '--column-color': column.color } as CSSProperties}
       aria-label={`${column.title} column`}
     >
@@ -111,6 +116,7 @@ export function BoardColumn({
             <TaskCard
               key={task.id}
               task={task}
+              cardLayout={cardLayout}
               onEdit={onEditTask}
               onDelete={onDeleteTask}
               onMoveLeft={canMoveLeft ? onMoveTaskLeft : undefined}

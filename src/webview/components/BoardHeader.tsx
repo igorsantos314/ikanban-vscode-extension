@@ -1,3 +1,5 @@
+import type { CardLayout } from '../cardLayout';
+
 export function BoardHeader({
   boardName,
   workspaceName,
@@ -6,10 +8,12 @@ export function BoardHeader({
   errorCount,
   warningCount,
   busy,
+  cardLayout,
   onRefresh,
   onValidate,
   onAddColumn,
   onShowValidation,
+  onCardLayoutChange,
 }: {
   boardName: string;
   workspaceName: string;
@@ -18,10 +22,12 @@ export function BoardHeader({
   errorCount: number;
   warningCount: number;
   busy: boolean;
+  cardLayout: CardLayout;
   onRefresh(): void;
   onValidate(): void;
   onAddColumn(): void;
   onShowValidation(): void;
+  onCardLayoutChange(layout: CardLayout): void;
 }) {
   const issueCount = errorCount + warningCount;
   return (
@@ -33,6 +39,26 @@ export function BoardHeader({
         </p>
       </div>
       <div className="board-actions">
+        <div className="layout-toggle" role="group" aria-label="Card density">
+          <button
+            type="button"
+            className={`layout-option ${cardLayout === 'expanded' ? 'layout-option-active' : ''}`}
+            aria-pressed={cardLayout === 'expanded'}
+            onClick={() => onCardLayoutChange('expanded')}
+            title="Expanded cards"
+          >
+            Expanded
+          </button>
+          <button
+            type="button"
+            className={`layout-option ${cardLayout === 'compact' ? 'layout-option-active' : ''}`}
+            aria-pressed={cardLayout === 'compact'}
+            onClick={() => onCardLayoutChange('compact')}
+            title="Compact cards"
+          >
+            Compact
+          </button>
+        </div>
         <button
           type="button"
           className={`btn ${issueCount > 0 ? 'btn-warning' : ''}`}

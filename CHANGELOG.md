@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Turned the Activity Bar home view into a state-aware launcher: it no longer opens the board automatically, offers Initialize only when the board is missing, and shows board and AI skill status.
+- Added explicit Install/Update AI skill actions based on comparing the workspace skill with the bundled skill, including after extension updates.
+- Added expanded and compact task-card densities with a persisted workspace preference.
+- Added distinct priority icons, tag icons in compact mode and a Trello-like checklist progress bar.
+- Added a drag overlay, cross-column insertion preview, reserved drop space and a drop animation for smoother task moves.
+
 ## 0.1.0
 
 - Refined the board and task dialog with layered surfaces, quieter borders, colored priority badges, neutral tag chips, compact metadata and a shared visual system.

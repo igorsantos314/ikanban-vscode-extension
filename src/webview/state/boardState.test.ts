@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { BoardSnapshot, TaskView } from '../../shared/board';
 import {
   boardReducer,
+  buildPreviewOrder,
   computeMoveTarget,
   initialBoardState,
+  locateTaskInPreview,
+  moveTargetFromPreview,
+  moveTaskInPreview,
+  previewOrdersEqual,
   tasksForColumn,
 } from './boardState';
 
@@ -151,5 +156,86 @@ describe('computeMoveTarget', () => {
 
   it('sorts tasks for a column by position', () => {
     expect(tasksForColumn(tasks, 'backlog').map((entry) => entry.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('drag preview order', () => {
+  const tasks = [
+    task({ id: 'a', position: 1024 }),
+    task({ id: 'b', position: 2048 }),
+    task({ id: 'c', position: 3072 }),
+    task({ id: 'd', position: 1024, columnId: 'done' }),
+  ];
+  const order = buildPreviewOrder(snapshot().columns, tasks);
+
+  it('builds one ordered id list per column', () => {
+    expect(order).toEqual({ backlog: ['a', 'b', 'c'], done: ['d'] });
+  });
+
+  it('moves a task to the end of another column', () => {
+    expect(moveTaskInPreview(order, 'a', 'column:done')).toEqual({
+      backlog: ['b', 'c'],
+      done: ['d', 'a'],
+    });
+  });
+
+  it('inserts before or after a task using the pointer direction', () => {
+    expect(moveTaskInPreview(order, 'a', 'c')).toEqual({
+      backlog: ['b', 'a', 'c'],
+      done: ['d'],
+    });
+    expect(
+      moveTaskInPreview(order, 'a', 'c', { activeTop: 320, overTop: 300, overHeight: 20 }),
+    ).toEqual({
+      backlog: ['b', 'c', 'a'],
+      done: ['d'],
+    });
+    expect(moveTaskInPreview(order, 'a', 'b')).toBeNull();
+  });
+
+  it('reorders within the same column', () => {
+    expect(
+      moveTaskInPreview(order, 'c', 'a', { activeTop: 50, overTop: 100, overHeight: 20 }),
+    ).toEqual({
+      backlog: ['c', 'a', 'b'],
+      done: ['d'],
+    });
+  });
+
+  it('moves into an empty column', () => {
+    const empty = { backlog: ['a', 'b'], done: [] };
+    expect(moveTaskInPreview(empty, 'a', 'column:done')).toEqual({
+      backlog: ['b'],
+      done: ['a'],
+    });
+  });
+
+  it('ignores unknown targets, self drops and no-op positions', () => {
+    expect(moveTaskInPreview(order, 'a', 'a')).toBeNull();
+    expect(moveTaskInPreview(order, 'a', 'unknown')).toBeNull();
+    expect(moveTaskInPreview(order, 'a', 'column:missing')).toBeNull();
+    expect(moveTaskInPreview(order, 'a', 'b')).toBeNull();
+  });
+
+  it('derives the authoritative move target from the preview', () => {
+    const next = moveTaskInPreview(order, 'a', 'column:done');
+    expect(next).not.toBeNull();
+    expect(moveTargetFromPreview(next!, 'a')).toEqual({
+      toColumnId: 'done',
+      targetIndex: 1,
+    });
+  });
+
+  it('compares preview orders', () => {
+    const next = moveTaskInPreview(order, 'a', 'column:done');
+    expect(next).not.toBeNull();
+    expect(previewOrdersEqual(order, order)).toBe(true);
+    expect(previewOrdersEqual(order, next!)).toBe(false);
+    expect(previewOrdersEqual(order, { backlog: ['a', 'b'], done: ['d'] })).toBe(false);
+  });
+
+  it('locates tasks in the preview order', () => {
+    expect(locateTaskInPreview(order, 'c')).toEqual({ columnId: 'backlog', index: 2 });
+    expect(locateTaskInPreview(order, 'missing')).toBeNull();
   });
 });

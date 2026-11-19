@@ -22,8 +22,20 @@ export function TagIcon({ tag }: { tag: TagId }) {
   );
 }
 
-export function TagChip({ tag }: { tag: TagId }) {
+export function TagChip({ tag, compact }: { tag: TagId; compact?: boolean }) {
   const visual = TAG_VISUALS[tag];
+  if (compact) {
+    return (
+      <span
+        className={`tag-chip tag-chip-compact ${visual.className}`}
+        data-tag={tag}
+        title={visual.label}
+        aria-label={visual.label}
+      >
+        <TagIcon tag={tag} />
+      </span>
+    );
+  }
   return (
     <span className={`tag-chip ${visual.className}`} data-tag={tag}>
       <TagIcon tag={tag} />

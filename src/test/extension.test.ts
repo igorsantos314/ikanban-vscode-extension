@@ -123,6 +123,51 @@ suite('iKanban extension', () => {
     );
   });
 
+  test('home state reports a missing board and skill without writing files', async () => {
+    const state = await api.getHomeState();
+    assert.strictEqual(state.status, 'ready');
+    assert.strictEqual(state.board, 'missing');
+    assert.strictEqual(state.skill, 'missing');
+
+    const html = await api.getHomeHtml();
+    assert.match(html, /data-board-state="missing"/);
+    assert.match(html, /command:ikanban\.initialize/);
+    assert.doesNotMatch(html, /command:ikanban\.open"/);
+    assert.match(html, /command:ikanban\.installAgentSkill/);
+
+    await assert.rejects(async () => {
+      await vscode.workspace.fs.stat(vscode.Uri.joinPath(root, '.ikanban', 'board.yaml'));
+    });
+  });
+
+  test('home state switches to Open after initialization', async () => {
+    const before = await api.getHomeHtml();
+    assert.match(before, /command:ikanban\.initialize/);
+
+    await vscode.commands.executeCommand('ikanban.initialize');
+
+    const state = await api.getHomeState();
+    assert.strictEqual(state.board, 'initialized');
+    const after = await api.getHomeHtml();
+    assert.match(after, /command:ikanban\.open"/);
+    assert.doesNotMatch(after, /command:ikanban\.initialize/);
+    assert.match(after, /data-board-state="initialized"/);
+  });
+
+  test('home state reports the skill as current after an explicit install', async () => {
+    const before = await api.getHomeState();
+    assert.strictEqual(before.skill, 'missing');
+    assert.match(await api.getHomeHtml(), />Install AI skill</);
+
+    await vscode.commands.executeCommand('ikanban.installAgentSkill');
+
+    const after = await api.getHomeState();
+    assert.strictEqual(after.skill, 'current');
+    const html = await api.getHomeHtml();
+    assert.doesNotMatch(html, /command:ikanban\.installAgentSkill/);
+    assert.match(html, /Up to date/);
+  });
+
   test('installs the portable agent skill and managed AGENTS pointer', async () => {
     await vscode.commands.executeCommand('ikanban.installAgentSkill');
 
@@ -189,16 +234,11 @@ suite('iKanban extension', () => {
     assert.strictEqual(api.getOpenPanelCount(), 1);
   });
 
-  test('sidebar entry redirects to exactly one board panel', async () => {
-    await request<BoardSnapshot>('board/initialize', {});
-    await vscode.commands.executeCommand('workbench.view.extension.ikanban');
-    await waitFor(
-      () => api.getOpenPanelCount(),
-      (count) => count === 1,
-    );
+  test('sidebar view stays a launcher and does not open a board by itself', async () => {
+    const before = api.getOpenPanelCount();
     await vscode.commands.executeCommand('workbench.view.extension.ikanban');
     await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.strictEqual(api.getOpenPanelCount(), 1);
+    assert.strictEqual(api.getOpenPanelCount(), before);
   });
 
   test('creates a task from the command with default fields', async () => {

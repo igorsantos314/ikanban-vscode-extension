@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BoardSnapshot, TaskView } from '../shared/board';
 import type { BoardClientLike } from './api/boardClient';
 import type { BoardPushMessage, ProtocolRequestType } from '../shared/protocol';
@@ -74,8 +74,7 @@ interface FakeOptions {
   onRequest?: (type: ProtocolRequestType, payload: unknown) => unknown;
 }
 
-function fakeClient(options: FakeOptions = {}) {
-  let listener: ((message: BoardPushMessage) => void) | undefined;
+function fakeClient(options: FakeOptions = {}) {  let listener: ((message: BoardPushMessage) => void) | undefined;
   const request = vi.fn(async (type: ProtocolRequestType, payload: unknown) => {
     if (options.onRequest) {
       const result = options.onRequest(type, payload);
@@ -107,6 +106,10 @@ function fakeClient(options: FakeOptions = {}) {
 }
 
 describe('App', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it('shows a loading state before the board arrives', async () => {
     let resolveLoad: ((value: BoardSnapshot) => void) | undefined;
     const client: BoardClientLike = {
@@ -147,15 +150,137 @@ describe('App', () => {
     expect(screen.getByText('High')).toBeInTheDocument();
     expect(screen.getAllByText('Issue').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Feature').length).toBeGreaterThan(0);
-    expect(screen.getByText('Checklist 1/2')).toBeInTheDocument();
+    expect(screen.getByText('1/2')).toBeInTheDocument();
+    expect(
+      screen.getByRole('progressbar', { name: 'Checklist progress 1 of 2' }),
+    ).toHaveAttribute('aria-valuenow', '1');
     expect(screen.getAllByLabelText('1 task')).toHaveLength(2);
     expect(
       document.querySelectorAll('time[datetime="2026-11-18T10:00:00.000Z"]'),
     ).toHaveLength(2);
   });
 
-  it('initializes an empty workspace', async () => {
+  it('switches between expanded and compact card densities and persists the choice', async () => {
     const user = userEvent.setup();
+    const { client } = fakeClient({ load: snapshot([task()]) });
+    const first = render(<App client={client} />);
+    await screen.findByText('Fix login');
+
+    expect(screen.getByRole('button', { name: 'Expanded' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByText('Login fails on refresh')).toBeInTheDocument();
+    expect(screen.getByText('Issue')).toBeInTheDocument();
+    expect(document.querySelector('time')).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Compact' }));
+
+    expect(screen.getByRole('button', { name: 'Compact' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.queryByText('Login fails on refresh')).not.toBeInTheDocument();
+    expect(screen.queryByText('Issue')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Issue')).toBeInTheDocument();
+    expect(screen.getByLabelText('Priority: High')).toBeInTheDocument();
+    expect(screen.getByText('1/2')).toBeInTheDocument();
+    expect(document.querySelector('time')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Delete task Fix login' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Move Fix login to the next column' }),
+    ).toBeInTheDocument();
+
+    first.unmount();
+    const second = fakeClient({ load: snapshot([task()]) });
+    render(<App client={second.client} />);
+    await screen.findByText('Fix login');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Compact' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
+    );
+    expect(screen.queryByText('Login fails on refresh')).not.toBeInTheDocument();
+  });
+
+  it('shows complete checklist progress and omits it when there are no items', async () => {
+    const complete = task({
+      id: '550e8400-e29b-41d4-a716-446655440040',
+      title: 'Complete checklist',
+      checklists: [
+        {
+          id: '650e8400-e29b-41d4-a716-446655440041',
+          title: 'Done',
+          position: 1024,
+          items: [
+            {
+              id: '750e8400-e29b-41d4-a716-446655440042',
+              text: 'One',
+              completed: true,
+              position: 1024,
+            },
+            {
+              id: '750e8400-e29b-41d4-a716-446655440043',
+              text: 'Two',
+              completed: true,
+              position: 2048,
+            },
+          ],
+        },
+      ],
+    });
+    const withoutChecklist = task({
+      id: '550e8400-e29b-41d4-a716-446655440044',
+      title: 'No checklist',
+      checklists: [],
+      tags: [],
+    });
+    const { client } = fakeClient({ load: snapshot([complete, withoutChecklist]) });
+    render(<App client={client} />);
+    await screen.findByText('Complete checklist');
+
+    expect(screen.getByText('2/2')).toBeInTheDocument();
+    const progress = screen.getByRole('progressbar', {
+      name: 'Checklist progress 2 of 2',
+    });
+    expect(progress).toHaveAttribute('aria-valuenow', '2');
+    expect(progress).toHaveAttribute('aria-valuetext', '2 of 2 complete');
+    expect(screen.getAllByRole('progressbar')).toHaveLength(1);
+  });
+
+  it('renders a distinct priority icon for each level', async () => {    const low = task({
+      id: '550e8400-e29b-41d4-a716-446655440030',
+      title: 'Low task',
+      priority: 'low',
+      tags: [],
+    });
+    const medium = task({
+      id: '550e8400-e29b-41d4-a716-446655440031',
+      title: 'Medium task',
+      priority: 'medium',
+      tags: [],
+    });
+    const high = task({
+      id: '550e8400-e29b-41d4-a716-446655440032',
+      title: 'High task',
+      priority: 'high',
+      tags: [],
+    });
+    const { client } = fakeClient({ load: snapshot([low, medium, high]) });
+    render(<App client={client} />);
+    await screen.findByText('Low task');
+
+    const pathsFor = (label: string) =>
+      Array.from(screen.getByLabelText(label).querySelectorAll('svg path')).map((path) =>
+        path.getAttribute('d'),
+      );
+    expect(pathsFor('Priority: Low')).toContain('m19 12-7 7-7-7');
+    expect(pathsFor('Priority: Medium')).toEqual(['M5 12h14']);
+    expect(pathsFor('Priority: High')).toContain('m5 12 7-7 7 7');
+  });
+
+  it('initializes an empty workspace', async () => {    const user = userEvent.setup();
     const empty: BoardSnapshot = {
       workspaceName: 'Workspace',
       board: null,
@@ -383,4 +508,5 @@ describe('App', () => {
     await screen.findByText('Fix login');
     expect(screen.getByText('Fix login')).toBeInTheDocument();
   });
+
 });

@@ -94,4 +94,53 @@ describe('WorkspaceResolver', () => {
     expect(await resolver.resolve({ alwaysPick: true })).toBe(first);
     expect(pick).toHaveBeenCalledOnce();
   });
+
+  describe('peek', () => {
+    it('returns undefined with no folders without prompting', () => {
+      const pick = vi.fn();
+      const resolver = new WorkspaceResolver({
+        getFolders: () => [],
+        pickFolder: pick,
+        getRememberedUri: () => undefined,
+        rememberUri: vi.fn(),
+      });
+      expect(resolver.peek()).toBeUndefined();
+      expect(pick).not.toHaveBeenCalled();
+    });
+
+    it('returns the only folder', () => {
+      const only = folder('only');
+      const pick = vi.fn();
+      const resolver = new WorkspaceResolver({
+        getFolders: () => [only],
+        pickFolder: pick,
+        getRememberedUri: () => undefined,
+        rememberUri: vi.fn(),
+      });
+      expect(resolver.peek()).toBe(only);
+      expect(pick).not.toHaveBeenCalled();
+    });
+
+    it('returns the remembered folder in a multi-root workspace', () => {
+      const first = folder('first');
+      const second = folder('second');
+      const resolver = new WorkspaceResolver({
+        getFolders: () => [first, second],
+        pickFolder: vi.fn(),
+        getRememberedUri: () => second.uri.toString(),
+        rememberUri: vi.fn(),
+      });
+      expect(resolver.peek()).toBe(second);
+    });
+
+    it('returns undefined for an unremembered multi-root workspace', () => {
+      const resolver = new WorkspaceResolver({
+        getFolders: () => [folder('first'), folder('second')],
+        pickFolder: vi.fn(),
+        getRememberedUri: () => undefined,
+        rememberUri: vi.fn(),
+      });
+      expect(resolver.peek()).toBeUndefined();
+    });
+  });
 });

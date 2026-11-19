@@ -1,9 +1,11 @@
 import {
+  FileType,
   Selection,
   Uri,
   commands,
   window,
   workspace,
+  type Disposable,
   type ExtensionContext,
   type OutputChannel,
   type WebviewPanel,
@@ -19,6 +21,14 @@ import {
 import { BoardPanel } from './vscode/boardPanel';
 import { installAgentSkill, type InstallAgentSkillResult } from './vscode/agentSkillInstaller';
 import { DiagnosticsManager } from './vscode/diagnosticsManager';
+import { Debouncer } from './vscode/debounce';
+import { buildHomeHtml } from './vscode/homeHtml';
+import {
+  detectHomeState,
+  type HomeStateDependencies,
+  type HomeViewState,
+  type StatKind,
+} from './vscode/homeState';
 import { HomeViewProvider } from './vscode/homeView';
 import { MessageRouter } from './vscode/messageRouter';
 import { createBoardSession, type BoardSession } from './vscode/session';
@@ -28,6 +38,7 @@ import {
 } from './vscode/workspaceResolver';
 
 const REMEMBERED_FOLDER_KEY = 'ikanban.workspaceFolderUri';
+const HOME_DEBOUNCE_MS = 250;
 
 export interface IkanbanApi {
   initialize(): Promise<BoardSnapshot>;
@@ -36,6 +47,8 @@ export interface IkanbanApi {
   refresh(): Promise<BoardSnapshot>;
   dispatch(raw: unknown): Promise<ProtocolResponse>;
   getOpenPanelCount(): number;
+  getHomeState(): Promise<HomeViewState>;
+  getHomeHtml(): Promise<string>;
 }
 
 interface Controller {
@@ -72,6 +85,51 @@ export function activate(context: ExtensionContext): IkanbanApi {
     diagnostics,
     output,
     sessions: new Map(),
+  };
+
+  const homeDependencies: HomeStateDependencies = {
+    getFolders: () => mapFolders(),
+    getRememberedUri: () => context.workspaceState.get<string>(REMEMBERED_FOLDER_KEY),
+    isTrusted: () => workspace.isTrusted,
+    joinPath: (base, ...segments) => Uri.joinPath(base as Uri, ...segments),
+    stat: (uri) => statKind(uri as Uri),
+    listDirectory: async (uri) => {
+      try {
+        return (await workspace.fs.readDirectory(uri as Uri)).map(([name]) => name);
+      } catch (error) {
+        return isFileNotFound(error) ? [] : 'error';
+      }
+    },
+    readText: (uri) => readTextIfExists(uri as Uri),
+    readBundledSkill: async () =>
+      decodeUtf8(
+        await workspace.fs.readFile(
+          Uri.joinPath(
+            context.extensionUri,
+            'resources',
+            'skills',
+            'ikanban',
+            'SKILL.md',
+          ),
+        ),
+      ),
+  };
+
+  const homeView = new HomeViewProvider({
+    detectState: () => detectHomeState(homeDependencies),
+    subscribe: (onChange) => subscribeHomeStateChanges(onChange),
+    log: (message, error) => logTechnical(output, message, error),
+  });
+
+  const refreshHome = async (): Promise<void> => {
+    await homeView.refresh();
+  };
+
+  const selectHomeFolder = async (): Promise<void> => {
+    const folder = await resolver.resolve({ alwaysPick: true });
+    if (folder) {
+      await refreshHome();
+    }
   };
 
   const showPanel = async (session: BoardSession): Promise<BoardPanel> =>
@@ -113,6 +171,7 @@ export function activate(context: ExtensionContext): IkanbanApi {
     const snapshot = await session.service.initializeBoard();
     diagnostics.publish(snapshot.issues);
     await showPanel(session);
+    await refreshHome();
     return snapshot;
   };
 
@@ -209,11 +268,13 @@ export function activate(context: ExtensionContext): IkanbanApi {
     if (!workspace.isTrusted) {
       throw new WorkspaceNotTrustedError();
     }
-    return installAgentSkill({
+    const result = await installAgentSkill({
       extensionUri: context.extensionUri,
       folder,
       output,
     });
+    await refreshHome();
+    return result;
   };
 
   const api: IkanbanApi = {
@@ -222,6 +283,8 @@ export function activate(context: ExtensionContext): IkanbanApi {
     validate,
     refresh,
     getOpenPanelCount: () => (BoardPanel.currentPanel ? 1 : 0),
+    getHomeState: () => detectHomeState(homeDependencies),
+    getHomeHtml: async () => buildHomeHtml(await detectHomeState(homeDependencies)),
     dispatch: async (raw) => {
       const folder = await resolveFolder();
       const session = getSession(folder);
@@ -280,6 +343,8 @@ export function activate(context: ExtensionContext): IkanbanApi {
       }
     }),
     command('ikanban.refresh', refresh),
+    command('ikanban.home.refresh', refreshHome),
+    command('ikanban.home.selectFolder', selectHomeFolder),
     command('ikanban.installAgentSkill', installSkill, (result) => {
       const installed = result as InstallAgentSkillResult;
       const skillPath = workspace.asRelativePath(installed.skillUri, false);
@@ -313,12 +378,6 @@ export function activate(context: ExtensionContext): IkanbanApi {
     },
   );
 
-  const homeView = new HomeViewProvider({
-    redirect: async () => {
-      await commands.executeCommand('ikanban.open');
-    },
-    log: (message, error) => logTechnical(output, message, error),
-  });
   context.subscriptions.push(
     window.registerWebviewViewProvider('ikanban.home', homeView, {
       webviewOptions: { retainContextWhenHidden: false },
@@ -341,6 +400,72 @@ function mapFolders(): WorkspaceFolderLike[] {
       uri: folder.uri,
     })) ?? []
   );
+}
+
+function subscribeHomeStateChanges(onChange: () => void): Disposable {
+  const debouncer = new Debouncer(HOME_DEBOUNCE_MS, onChange);
+  const disposables: Disposable[] = [
+    debouncer,
+    workspace.onDidChangeWorkspaceFolders(() => debouncer.schedule()),
+  ];
+  for (const pattern of ['**/.ikanban/board.yaml', '**/skills/ikanban/SKILL.md']) {
+    const watcher = workspace.createFileSystemWatcher(pattern);
+    disposables.push(
+      watcher,
+      watcher.onDidCreate(() => debouncer.schedule()),
+      watcher.onDidChange(() => debouncer.schedule()),
+      watcher.onDidDelete(() => debouncer.schedule()),
+    );
+  }
+  return {
+    dispose: () => {
+      for (const disposable of disposables) {
+        disposable.dispose();
+      }
+    },
+  };
+}
+
+async function statKind(uri: Uri): Promise<StatKind> {
+  try {
+    const stat = await workspace.fs.stat(uri);
+    if (stat.type === FileType.File) {
+      return 'file';
+    }
+    if (stat.type === FileType.Directory) {
+      return 'directory';
+    }
+    return 'error';
+  } catch (error) {
+    return isFileNotFound(error) ? 'missing' : 'error';
+  }
+}
+
+async function readTextIfExists(uri: Uri): Promise<string | undefined> {
+  try {
+    return decodeUtf8(await workspace.fs.readFile(uri));
+  } catch (error) {
+    if (isFileNotFound(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function isFileNotFound(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const candidate = error as { code?: unknown; name?: unknown };
+  return (
+    candidate.code === 'FileNotFound' ||
+    candidate.code === 'EntryNotFound' ||
+    candidate.name === 'EntryNotFound (FileSystemError)'
+  );
+}
+
+function decodeUtf8(content: Uint8Array): string {
+  return new TextDecoder().decode(content);
 }
 
 function reportError(output: OutputChannel, error: unknown): void {

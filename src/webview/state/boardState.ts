@@ -187,3 +187,119 @@ export function tasksForColumn(
 ): TaskView[] {
   return sortByPosition(tasks.filter((task) => task.columnId === columnId));
 }
+
+export type PreviewOrder = Record<string, string[]>;
+
+export interface PreviewPosition {
+  columnId: string;
+  index: number;
+}
+
+export interface PreviewPointer {
+  activeTop: number;
+  overTop: number;
+  overHeight: number;
+}
+
+export function buildPreviewOrder(
+  columns: readonly { id: string }[],
+  tasks: readonly TaskView[],
+): PreviewOrder {
+  const order: PreviewOrder = {};
+  for (const column of columns) {
+    order[column.id] = tasksForColumn(tasks, column.id).map((task) => task.id);
+  }
+  return order;
+}
+
+export function locateTaskInPreview(
+  order: Readonly<PreviewOrder>,
+  taskId: string,
+): PreviewPosition | null {
+  for (const [columnId, ids] of Object.entries(order)) {
+    const index = ids.indexOf(taskId);
+    if (index >= 0) {
+      return { columnId, index };
+    }
+  }
+  return null;
+}
+
+export function previewOrdersEqual(left: PreviewOrder, right: PreviewOrder): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  return leftKeys.every((key) => {
+    const rightIds = right[key];
+    const leftIds = left[key] ?? [];
+    return (
+      Array.isArray(rightIds) &&
+      rightIds.length === leftIds.length &&
+      rightIds.every((id, index) => id === leftIds[index])
+    );
+  });
+}
+
+export function moveTaskInPreview(
+  order: Readonly<PreviewOrder>,
+  activeId: string,
+  overId: string,
+  pointer?: PreviewPointer,
+): PreviewOrder | null {
+  const current = locateTaskInPreview(order, activeId);
+  if (!current || overId === activeId) {
+    return null;
+  }
+
+  let targetColumnId: string;
+  let targetIndex: number;
+  if (overId.startsWith('column:')) {
+    targetColumnId = overId.slice('column:'.length);
+    if (!Object.prototype.hasOwnProperty.call(order, targetColumnId)) {
+      return null;
+    }
+    const destination = (order[targetColumnId] ?? []).filter((id) => id !== activeId);
+    targetIndex = destination.length;
+  } else {
+    const over = locateTaskInPreview(order, overId);
+    if (!over) {
+      return null;
+    }
+    targetColumnId = over.columnId;
+    const destination = (order[targetColumnId] ?? []).filter((id) => id !== activeId);
+    const overIndex = destination.indexOf(overId);
+    if (overIndex < 0) {
+      return null;
+    }
+    const insertAfter = pointer
+      ? pointer.activeTop > pointer.overTop + pointer.overHeight / 2
+      : false;
+    targetIndex = overIndex + (insertAfter ? 1 : 0);
+  }
+
+  if (targetColumnId === current.columnId && targetIndex === current.index) {
+    return null;
+  }
+
+  const next: PreviewOrder = {};
+  for (const [columnId, ids] of Object.entries(order)) {
+    next[columnId] = ids.filter((id) => id !== activeId);
+  }
+  const destination = [...(next[targetColumnId] ?? [])];
+  destination.splice(Math.max(0, Math.min(targetIndex, destination.length)), 0, activeId);
+  next[targetColumnId] = destination;
+  return next;
+}
+
+export function moveTargetFromPreview(
+  order: Readonly<PreviewOrder>,
+  activeId: string,
+): MoveTarget | null {
+  const position = locateTaskInPreview(order, activeId);
+  if (!position) {
+    return null;
+  }
+  return { toColumnId: position.columnId, targetIndex: position.index };
+}

@@ -53,9 +53,16 @@ In a multi-root workspace, iKanban asks which workspace folder to use and rememb
 
 ## Activity Bar
 
-After installation, iKanban adds an entry to the VS Code Activity Bar. Selecting the iKanban icon shows the home view and redirects you to the board screen, opening the board panel or revealing and refreshing it when it is already open. The home view also provides actions to open, initialize and validate the board, and stays available if the board cannot be opened.
+After installation, iKanban adds an entry to the VS Code Activity Bar. The home view is a launcher and status panel: it shows whether the selected workspace has a board and whether the AI skill is installed, current or outdated, and it never opens the board automatically.
 
-The board itself remains an editor panel; the Activity Bar view only redirects to it. The Activity Bar position (left or right) follows your VS Code layout settings, and iKanban does not move it.
+The actions follow that state:
+
+- **Open board** and **Validate board** appear when `.ikanban/board.yaml` exists.
+- **Initialize board** appears only when the board does not exist and the workspace is trusted.
+- **Install AI skill** appears when the skill is missing, and **Update AI skill** appears when the bundled skill differs from the installed one.
+- **Refresh** re-reads the state; in a multi-root workspace with no remembered folder, **Select workspace folder** chooses the folder first.
+
+The board itself remains an editor panel; the Activity Bar position (left or right) follows your VS Code layout settings, and iKanban does not move it.
 
 ## AI agents and the skill
 
@@ -69,6 +76,8 @@ AGENTS.md                 # managed pointer block for agents
 ```
 
 `AGENTS.md` is created when missing. If it already exists, only the delimited iKanban block is added or replaced, so the rest of the project instructions are preserved. Running the command again is safe and refreshes the skill without duplicating the block.
+
+The Activity Bar home view compares the installed skill with the skill bundled in the current extension. It offers **Update AI skill** when they differ, for example after an extension update. Nothing is overwritten automatically: the refresh happens only when you activate the action, and the managed `AGENTS.md` block is updated while all other content is preserved.
 
 Agents that discover `AGENTS.md` or `skills/` can then use the skill directly to:
 
@@ -93,7 +102,11 @@ A column can only be deleted when it contains no task files. The final remaining
 
 ### Tasks
 
-Use **+ Add task** in a column, or open an existing card to edit it. Every column also displays its task count. Tasks can be moved with drag-and-drop or with the arrow buttons on each card. The card shows its priority, visual tags and overall checklist progress.
+Use **+ Add task** in a column, or open an existing card to edit it. Every column also displays its task count. Tasks can be moved with drag-and-drop or with the arrow buttons on each card. The card shows its priority icon, visual tags and checklist progress with a small progress bar.
+
+Drag-and-drop shows the card following the pointer, previews the target column and insertion point before you release it, reserves the space at the drop position and animates the card into place. The move is persisted only when you drop; a failed move restores the previous order and shows an error.
+
+Use the **Expanded** / **Compact** control in the toolbar to switch card density. **Expanded** shows the description, tag labels and last-updated time. **Compact** shows the title, priority icon, checklist progress and tag icons only. The choice is stored per workspace and restored when the board is reopened.
 
 When an existing task is open, the dialog shows read-only **Created** and **Last updated** timestamps. The creation time never changes; the last-updated time is refreshed after every successful edit, move, reorder or checklist change.
 

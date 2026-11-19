@@ -1,10 +1,12 @@
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
+  MeasuringStrategy,
   PointerSensor,
+  closestCorners,
   useSensor,
   useSensors,
-  type DragEndEvent,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
@@ -15,18 +17,25 @@ import {
   createWebviewBoardClient,
   type BoardClientLike,
 } from './api/boardClient';
+import {
+  DEFAULT_CARD_LAYOUT,
+  readCardLayout,
+  writeCardLayout,
+  type CardLayout,
+} from './cardLayout';
 import { BoardColumn } from './components/BoardColumn';
 import { BoardHeader } from './components/BoardHeader';
 import { ColumnDialog, type ColumnFormValues } from './components/ColumnDialog';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { TaskCardOverlay } from './components/TaskCard';
 import { TaskDialog, type TaskDialogPayload } from './components/TaskDialog';
 import { ValidationPanel } from './components/ValidationPanel';
 import {
   boardReducer,
-  computeMoveTarget,
   initialBoardState,
-  tasksForColumn,
+  locateTaskInPreview,
 } from './state/boardState';
+import { useDragPreview } from './useDragPreview';
 
 export function App({ client }: { client?: BoardClientLike }) {
   const ownedClient = useMemo(() => (client ? undefined : createWebviewBoardClient()), [client]);
@@ -75,6 +84,31 @@ export function App({ client }: { client?: BoardClientLike }) {
   const snapshot = state.snapshot;
   const columns = snapshot?.columns ?? [];
   const tasks = snapshot?.tasks ?? [];
+  const workspaceName = snapshot?.workspaceName;
+
+  const [layoutChoice, setLayoutChoice] = useState<{
+    workspaceName: string;
+    layout: CardLayout;
+  } | null>(null);
+  const storedCardLayout = useMemo(
+    () => (workspaceName ? readCardLayout(workspaceName) : DEFAULT_CARD_LAYOUT),
+    [workspaceName],
+  );
+  const activeCardLayout =
+    layoutChoice && layoutChoice.workspaceName === workspaceName
+      ? layoutChoice.layout
+      : storedCardLayout;
+
+  const changeCardLayout = useCallback(
+    (next: CardLayout) => {
+      if (!workspaceName) {
+        return;
+      }
+      setLayoutChoice({ workspaceName, layout: next });
+      writeCardLayout(workspaceName, next);
+    },
+    [workspaceName],
+  );
 
   const reportError = useCallback((error: unknown) => {
     dispatch({
@@ -298,19 +332,19 @@ export function App({ client }: { client?: BoardClientLike }) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const activeId = String(event.active.id);
-    const overId = event.over ? String(event.over.id) : undefined;
-    if (!overId) {
-      return;
-    }
-    const target = computeMoveTarget(tasks, activeId, overId);
-    const task = tasks.find((entry) => entry.id === activeId);
-    if (!target || !task) {
-      return;
-    }
-    void moveTask(task, target.toColumnId, target.targetIndex);
-  };
+  const {
+    dragPreview,
+    draggedTask,
+    tasksFor,
+    handleDragStart,
+    handleDragOver,
+    handleDragEnd,
+    handleDragCancel,
+  } = useDragPreview({ columns, tasks, moveTask });
+
+  const draggedColumnId = dragPreview
+    ? locateTaskInPreview(dragPreview.order, dragPreview.activeId)?.columnId
+    : undefined;
 
   return (
     <div className="flex h-full flex-col">
@@ -361,18 +395,30 @@ export function App({ client }: { client?: BoardClientLike }) {
             errorCount={snapshot.issues.filter((issue) => issue.severity === 'error').length}
             warningCount={snapshot.issues.filter((issue) => issue.severity === 'warning').length}
             busy={state.busy || moveInProgress}
+            cardLayout={activeCardLayout}
+            onCardLayoutChange={changeCardLayout}
             onRefresh={() => void load()}
             onValidate={() => void validate()}
             onAddColumn={() => dispatch({ type: 'column-dialog', target: { mode: 'create' } })}
             onShowValidation={() => dispatch({ type: 'validation', open: true })}
           />
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
+          >
             <div className="board-scroll flex min-h-0 flex-1 items-stretch overflow-x-auto">
               {snapshot.columns.map((column, index) => (
                 <BoardColumn
                   key={column.id}
                   column={column}
-                  tasks={tasksForColumn(tasks, column.id)}
+                  tasks={tasksFor(column.id)}
+                  cardLayout={activeCardLayout}
+                  isDropTarget={draggedColumnId === column.id}
                   canMoveLeft={index > 0}
                   canMoveRight={index < snapshot.columns.length - 1}
                   dragDisabled={state.busy || moveInProgress}
@@ -402,6 +448,16 @@ export function App({ client }: { client?: BoardClientLike }) {
                 />
               ))}
             </div>
+            <DragOverlay
+              dropAnimation={{
+                duration: 180,
+                easing: 'cubic-bezier(0.2, 0, 0, 1)',
+              }}
+            >
+              {draggedTask ? (
+                <TaskCardOverlay task={draggedTask} cardLayout={activeCardLayout} />
+              ) : null}
+            </DragOverlay>
           </DndContext>
         </>
       ) : null}

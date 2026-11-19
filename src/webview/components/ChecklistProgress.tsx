@@ -20,9 +20,11 @@ function ChecklistIcon() {
 export function ChecklistProgress({
   completed,
   total,
+  compact,
 }: {
   completed: number;
   total: number;
+  compact?: boolean;
 }) {
   const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
   return (
@@ -31,17 +33,19 @@ export function ChecklistProgress({
       <span className="checklist-progress-count">
         {completed}/{total}
       </span>
-      <span
-        className="checklist-progress-track"
-        role="progressbar"
-        aria-label={`Checklist progress ${completed} of ${total}`}
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={completed}
-        aria-valuetext={`${completed} of ${total} complete`}
-      >
-        <span className="checklist-progress-fill" style={{ width: `${percent}%` }} />
-      </span>
+      {compact ? null : (
+        <span
+          className="checklist-progress-track"
+          role="progressbar"
+          aria-label={`Checklist progress ${completed} of ${total}`}
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={completed}
+          aria-valuetext={`${completed} of ${total} complete`}
+        >
+          <span className="checklist-progress-fill" style={{ width: `${percent}%` }} />
+        </span>
+      )}
     </span>
   );
 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Redefined compact cards as exactly two lines: title plus priority, checklist count, tag icons and deadline.
+- Added an optional task deadline with masked `DD/MM/AAAA` and `HH:MM` fields, stored as one ISO 8601 UTC `dueAt` timestamp and shown in local time.
+- Made the whole card clickable to open and draggable to move, removing the drag handle and per-card arrow/delete buttons.
+- Added keyboard shortcuts: `Enter` opens a card; `Alt+Arrow` moves it between columns or positions.
+- Moved task deletion into the task dialog with the existing confirmation flow.
+- Added icons and distinct colors to the dialog Save/Create, Cancel and Delete actions.
+
 ## 0.1.1
 
 - Turned the Activity Bar home view into a state-aware launcher: it no longer opens the board automatically, offers Initialize only when the board is missing, and shows board and AI skill status.

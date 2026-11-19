@@ -1,14 +1,12 @@
 import {
   DndContext,
   DragOverlay,
-  KeyboardSensor,
   MeasuringStrategy,
   PointerSensor,
   closestCorners,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import type { BoardSnapshot, ColumnView, TaskView } from '../shared/board';
 import type { BoardPushMessage } from '../shared/protocol';
@@ -27,13 +25,14 @@ import { BoardColumn } from './components/BoardColumn';
 import { BoardHeader } from './components/BoardHeader';
 import { ColumnDialog, type ColumnFormValues } from './components/ColumnDialog';
 import { ConfirmDialog } from './components/ConfirmDialog';
-import { TaskCardOverlay } from './components/TaskCard';
+import { TaskCardOverlay, type KeyboardMoveDirection } from './components/TaskCard';
 import { TaskDialog, type TaskDialogPayload } from './components/TaskDialog';
 import { ValidationPanel } from './components/ValidationPanel';
 import {
   boardReducer,
   initialBoardState,
   locateTaskInPreview,
+  tasksForColumn,
 } from './state/boardState';
 import { useDragPreview } from './useDragPreview';
 
@@ -260,6 +259,24 @@ export function App({ client }: { client?: BoardClientLike }) {
     void moveTask(task, target.id, targetIndex);
   };
 
+  const moveTaskWithinColumn = (task: TaskView, direction: -1 | 1) => {
+    const columnTasks = tasksForColumn(tasks, task.columnId);
+    const index = columnTasks.findIndex((entry) => entry.id === task.id);
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= columnTasks.length) {
+      return;
+    }
+    void moveTask(task, task.columnId, targetIndex);
+  };
+
+  const handleKeyboardMove = (task: TaskView, direction: KeyboardMoveDirection) => {
+    if (direction === 'left' || direction === 'right') {
+      moveTaskToAdjacentColumn(task, direction === 'left' ? -1 : 1);
+    } else {
+      moveTaskWithinColumn(task, direction === 'up' ? -1 : 1);
+    }
+  };
+
   const moveColumn = async (column: ColumnView, direction: -1 | 1) => {
     if (!boardClient || !snapshot?.board) {
       return;
@@ -328,8 +345,7 @@ export function App({ client }: { client?: BoardClientLike }) {
   };
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
   const {
@@ -431,9 +447,7 @@ export function App({ client }: { client?: BoardClientLike }) {
                   onEditTask={(task) =>
                     dispatch({ type: 'task-dialog', target: { mode: 'edit', task } })
                   }
-                  onDeleteTask={(task) => dispatch({ type: 'confirm', target: { kind: 'task', task } })}
-                  onMoveTaskLeft={(task) => moveTaskToAdjacentColumn(task, -1)}
-                  onMoveTaskRight={(task) => moveTaskToAdjacentColumn(task, 1)}
+                  onKeyboardMoveTask={handleKeyboardMove}
                   onEditColumn={(target) =>
                     dispatch({
                       type: 'column-dialog',
@@ -470,6 +484,10 @@ export function App({ client }: { client?: BoardClientLike }) {
             : {})}
           columns={snapshot.columns}
           onSave={saveTask}
+          onDelete={(task) => {
+            dispatch({ type: 'task-dialog', target: null });
+            dispatch({ type: 'confirm', target: { kind: 'task', task } });
+          }}
           onClose={() => dispatch({ type: 'task-dialog', target: null })}
         />
       ) : null}
@@ -542,6 +560,7 @@ function taskPayload(payload: TaskDialogPayload) {
     description: payload.description,
     priority: payload.priority,
     tags: payload.tags,
+    dueAt: payload.dueAt,
     checklists: payload.checklists.map((checklist) => ({
       id: checklist.id,
       title: checklist.title,

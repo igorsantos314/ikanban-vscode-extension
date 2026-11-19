@@ -3,7 +3,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { ColumnView, TaskView } from '../../shared/board';
 import type { CardLayout } from '../cardLayout';
-import { TaskCard } from './TaskCard';
+import { TaskCard, type KeyboardMoveDirection } from './TaskCard';
 
 export function BoardColumn({
   column,
@@ -14,9 +14,7 @@ export function BoardColumn({
   canMoveRight,
   onAddTask,
   onEditTask,
-  onDeleteTask,
-  onMoveTaskLeft,
-  onMoveTaskRight,
+  onKeyboardMoveTask,
   onEditColumn,
   onDeleteColumn,
   onMoveColumnLeft,
@@ -31,9 +29,7 @@ export function BoardColumn({
   canMoveRight: boolean;
   onAddTask(column: ColumnView): void;
   onEditTask(task: TaskView): void;
-  onDeleteTask(task: TaskView): void;
-  onMoveTaskLeft(task: TaskView): void;
-  onMoveTaskRight(task: TaskView): void;
+  onKeyboardMoveTask(task: TaskView, direction: KeyboardMoveDirection): void;
   onEditColumn(column: ColumnView): void;
   onDeleteColumn(column: ColumnView): void;
   onMoveColumnLeft(column: ColumnView): void;
@@ -118,9 +114,7 @@ export function BoardColumn({
               task={task}
               cardLayout={cardLayout}
               onEdit={onEditTask}
-              onDelete={onDeleteTask}
-              onMoveLeft={canMoveLeft ? onMoveTaskLeft : undefined}
-              onMoveRight={canMoveRight ? onMoveTaskRight : undefined}
+              onKeyboardMove={onKeyboardMoveTask}
               dragDisabled={dragDisabled}
             />
           ))}

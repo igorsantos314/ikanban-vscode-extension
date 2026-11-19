@@ -354,6 +354,38 @@ textarea:focus-visible,
   background: var(--ikanban-button-hover);
 }
 
+.btn-cancel {
+  border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 45%, transparent);
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.btn-cancel:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 70%, transparent);
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 12%, transparent);
+}
+
+.btn svg {
+  flex: 0 0 auto;
+}
+
+.dialog-delete {
+  margin-right: auto;
+}
+
+.deadline-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.deadline-date {
+  max-width: 10.5rem;
+}
+
+.deadline-time {
+  max-width: 6.5rem;
+}
+
 .btn-danger {
   border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 55%, transparent);
   background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 14%, transparent);
@@ -476,7 +508,8 @@ textarea:focus-visible,
   background: var(--ikanban-card);
   padding: 10px 11px;
   box-shadow: var(--ikanban-shadow-card);
-  cursor: default;
+  cursor: pointer;
+  user-select: none;
   transition:
     background 140ms ease,
     border-color 140ms ease,
@@ -508,36 +541,71 @@ textarea:focus-visible,
 }
 
 .task-card-compact {
-  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 9px;
 }
 
-.task-card-compact .task-card-meta {
-  margin-bottom: 3px;
-}
-
-.task-card-compact .task-card-title {
+.task-card-compact-title {
+  display: block;
+  overflow: hidden;
+  color: var(--vscode-foreground);
   font-size: 12.5px;
-  -webkit-line-clamp: 2;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.task-card-compact .task-card-tags {
-  margin-top: 6px;
+.task-card-compact-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--ikanban-muted);
+  font-size: 10.5px;
+  white-space: nowrap;
 }
 
-.task-card-compact .task-card-footer {
-  margin-top: 8px;
+.task-card-compact-tags {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
 }
 
-.task-card-dragging {
-  z-index: 10;
-  opacity: 0.65;
-  box-shadow: var(--ikanban-shadow-card-hover);
+.task-card-compact .tag-chip-compact {
+  padding: 1px 3px;
+}
+
+.task-card-deadline {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--ikanban-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.task-card-deadline-overdue {
+  color: var(--vscode-errorForeground, #f14c4c);
+  font-weight: 600;
+}
+
+.task-card-overdue-label {
+  color: var(--vscode-errorForeground, #f14c4c);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .task-card-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   min-height: 16px;
   margin-bottom: 5px;
@@ -547,11 +615,7 @@ textarea:focus-visible,
   display: -webkit-box;
   width: 100%;
   overflow: hidden;
-  border: 0;
-  background: transparent;
-  padding: 0;
   color: var(--vscode-foreground);
-  cursor: pointer;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
@@ -559,11 +623,6 @@ textarea:focus-visible,
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
-}
-
-.task-card-title:hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .task-card-description {
@@ -631,47 +690,6 @@ textarea:focus-visible,
   border-radius: inherit;
   background: var(--vscode-progressBar-background, var(--ikanban-button));
   transition: width 180ms ease;
-}
-
-.task-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  opacity: 0;
-  transition: opacity 140ms ease;
-}
-
-.task-card:hover .task-card-actions,
-.task-card:focus-within .task-card-actions {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .task-card-actions {
-    opacity: 1;
-  }
-}
-
-.drag-handle {
-  border: 0;
-  border-radius: var(--ikanban-radius-sm);
-  background: transparent;
-  padding: 0 2px;
-  color: var(--ikanban-muted);
-  cursor: grab;
-  font-size: 10px;
-  opacity: 0.35;
-  transition: opacity 140ms ease;
-}
-
-.task-card:hover .drag-handle,
-.drag-handle:focus-visible {
-  opacity: 0.9;
-}
-
-.drag-handle:disabled {
-  cursor: default;
-  opacity: 0.2;
 }
 
 /* Priority and tags */

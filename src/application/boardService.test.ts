@@ -298,6 +298,54 @@ describe('task use cases', () => {
     expect(loaded.checklists[0]?.items).toHaveLength(2);
   });
 
+  it('creates, updates and clears an optional deadline', async () => {
+    const { service, workspace } = await setup();
+    const task = await service.createTask(
+      taskInput({ title: 'Deadline', dueAt: '2026-11-25T14:30:00.000Z' }),
+    );
+    expect(task.dueAt).toBe('2026-11-25T14:30:00.000Z');
+    const taskUri = workspace.fs.joinPath(
+      workspace.ikanbanUri,
+      'backlog',
+      `${task.id}.yaml`,
+    );
+    const raw = await workspace.fs.readFile(taskUri);
+    expect(new TextDecoder().decode(raw)).toContain('dueAt: 2026-11-25T14:30:00.000Z');
+
+    const updated = await service.updateTask({
+      taskId: task.id,
+      columnId: 'backlog',
+      expectedRevision: task.revision,
+      title: task.title,
+      priority: task.priority,
+      tags: [],
+      dueAt: '2026-12-01T09:00:00.000Z',
+    });
+    expect(updated.dueAt).toBe('2026-12-01T09:00:00.000Z');
+
+    const cleared = await service.updateTask({
+      taskId: task.id,
+      columnId: 'backlog',
+      expectedRevision: updated.revision,
+      title: task.title,
+      priority: task.priority,
+      tags: [],
+      dueAt: null,
+    });
+    expect(cleared.dueAt).toBeUndefined();
+    const clearedRaw = new TextDecoder().decode(
+      await workspace.fs.readFile(taskUri),
+    );
+    expect(clearedRaw).not.toContain('dueAt:');
+  });
+
+  it('rejects an invalid deadline', async () => {
+    const { service } = await setup();
+    await expect(
+      service.createTask(taskInput({ title: 'Invalid', dueAt: '2026-11-25' })),
+    ).rejects.toThrow(/ISO 8601/);
+  });
+
   it('updates and deletes a task', async () => {
     const { service } = await setup();
     const task = await service.createTask(taskInput({ title: 'Old' }));
@@ -456,6 +504,7 @@ describe('task use cases', () => {
       taskInput({
         title: 'Move me',
         tags: ['issue'],
+        dueAt: '2026-11-25T14:30:00.000Z',
         checklists: [
           {
             title: 'Checklist',
@@ -474,6 +523,7 @@ describe('task use cases', () => {
     const moved = snapshot.tasks.find((entry) => entry.id === task.id)!;
     expect(moved.columnId).toBe('in-progress');
     expect(moved.tags).toEqual(['issue']);
+    expect(moved.dueAt).toBe('2026-11-25T14:30:00.000Z');
     expect(moved.checklists[0]?.items[0]?.completed).toBe(true);
     expect(column(snapshot, 'backlog')?.taskCount).toBe(0);
     expect(column(snapshot, 'in-progress')?.taskCount).toBe(1);
@@ -681,5 +731,33 @@ describe('MutationQueue', () => {
     expect(snapshot.tasks).toHaveLength(8);
     const positions = snapshot.tasks.map((task) => task.position);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+});
+
+describe('deadline after move', () => {
+  it('updates a task immediately after a move using the reloaded revision', async () => {
+    const { service } = await setup();
+    const task = await service.createTask(
+      taskInput({ title: 'Moved deadline', dueAt: '2026-11-25T14:30:00.000Z' }),
+    );
+    let snapshot = await service.moveTask({
+      taskId: task.id,
+      fromColumnId: 'backlog',
+      toColumnId: 'done',
+      targetIndex: 0,
+      expectedRevision: task.revision,
+    });
+    snapshot = await service.loadBoard();
+    const reloaded = snapshot.tasks.find((entry) => entry.id === task.id)!;
+    const cleared = await service.updateTask({
+      taskId: reloaded.id,
+      columnId: 'done',
+      expectedRevision: reloaded.revision,
+      title: reloaded.title,
+      priority: reloaded.priority,
+      tags: reloaded.tags,
+      dueAt: null,
+    });
+    expect(cleared.dueAt).toBeUndefined();
   });
 });

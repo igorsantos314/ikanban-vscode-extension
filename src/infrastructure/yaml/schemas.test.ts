@@ -113,6 +113,17 @@ describe('task schema', () => {
     expect(taskSchema.safeParse({ ...validTask, createdAt: '2026-11-18' }).success).toBe(false);
   });
 
+  it('accepts an optional deadline with date and time', () => {
+    expect(
+      taskSchema.safeParse({ ...validTask, dueAt: '2026-11-25T14:30:00.000Z' }).success,
+    ).toBe(true);
+  });
+
+  it('rejects a date-only or malformed deadline', () => {
+    expect(taskSchema.safeParse({ ...validTask, dueAt: '2026-11-25' }).success).toBe(false);
+    expect(taskSchema.safeParse({ ...validTask, dueAt: 'tomorrow at noon' }).success).toBe(false);
+  });
+
   it('rejects a malformed task id', () => {
     expect(taskSchema.safeParse({ ...validTask, id: 'task-001' }).success).toBe(false);
   });

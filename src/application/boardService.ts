@@ -13,6 +13,7 @@ import type {
 } from '../shared/board';
 import type { ValidationIssue } from '../shared/validationIssue';
 import { deriveColumnId } from '../domain/columnId';
+import { normalizeDueAt } from '../domain/deadline';
 import {
   DuplicateEntityError,
   EntityNotFoundError,
@@ -55,6 +56,7 @@ export interface TaskDraft {
   priority: string;
   tags: readonly string[];
   checklists?: ChecklistDraft[];
+  dueAt?: string | null;
 }
 
 export interface CreateTaskInput extends TaskDraft {
@@ -560,6 +562,7 @@ export class BoardService {
       const { column } = await this.requireColumn(input.columnId);
       const existing = await this.tasksForColumn(column.id);
       const now = this.clock.now().toISOString();
+      const dueAt = normalizeDueAt(input.dueAt);
       const task: Task = {
         id: this.ids.next(),
         title: normalizeRequiredText(input.title, 'Task title'),
@@ -569,6 +572,7 @@ export class BoardService {
         priority: requirePriority(input.priority),
         position: nextPosition(existing),
         checklists: this.buildChecklists(input.checklists ?? []),
+        ...(dueAt ? { dueAt } : {}),
         createdAt: now,
         updatedAt: now,
       };
@@ -582,8 +586,13 @@ export class BoardService {
       const existing = await this.findTaskOrThrow(input.taskId);
       const targetColumn = await this.requireColumn(input.columnId);
       const now = this.clock.now().toISOString();
+      const dueAt =
+        input.dueAt === undefined
+          ? existing.task.dueAt
+          : normalizeDueAt(input.dueAt);
+      const { dueAt: _existingDueAt, ...existingWithoutDueAt } = existing.task;
       const updated: Task = {
-        ...existing.task,
+        ...existingWithoutDueAt,
         title: normalizeRequiredText(input.title, 'Task title'),
         description: input.description ?? '',
         tags: normalizeTags(input.tags),
@@ -592,6 +601,7 @@ export class BoardService {
           input.checklists === undefined
             ? existing.task.checklists
             : this.buildChecklists(input.checklists, existing.task.checklists),
+        ...(dueAt ? { dueAt } : {}),
         updatedAt: now,
       };
 

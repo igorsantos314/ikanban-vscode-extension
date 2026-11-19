@@ -438,6 +438,7 @@ suite('iKanban extension', () => {
       priority: 'high',
       tags: ['feat', 'spec'],
       checklists: [],
+      dueAt: '2026-11-25T14:30:00.000Z',
     });
 
     task = await request<TaskView>('checklist/create', {
@@ -487,6 +488,20 @@ suite('iKanban extension', () => {
     assert.ok(reloaded);
     assert.strictEqual(reloaded.columnId, 'done');
     assert.strictEqual(reloaded.checklists[0]?.items[0]?.completed, true);
+    assert.strictEqual(reloaded.dueAt, '2026-11-25T14:30:00.000Z');
+
+    const cleared = await request<TaskView>('task/update', {
+      taskId: reloaded.id,
+      columnId: 'done',
+      expectedRevision: reloaded.revision,
+      title: reloaded.title,
+      description: reloaded.description,
+      priority: reloaded.priority,
+      tags: reloaded.tags,
+      dueAt: null,
+    });
+    assert.strictEqual(cleared.dueAt, undefined);
+    assert.strictEqual(cleared.dueAt, undefined);
 
     const taskUri = vscode.Uri.joinPath(
       root,
@@ -497,11 +512,12 @@ suite('iKanban extension', () => {
     const yaml = await read(taskUri);
     assert.match(yaml, /End-to-end task/);
     assert.match(yaml, /completed: true/);
+    assert.doesNotMatch(yaml, /dueAt:/);
 
     await request('task/delete', {
       taskId: task.id,
       columnId: 'done',
-      expectedRevision: reloaded.revision,
+      expectedRevision: cleared.revision,
     });
     await assert.rejects(async () => {
       await vscode.workspace.fs.stat(taskUri);

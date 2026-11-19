@@ -22,7 +22,7 @@ describe('iKanban skill asset', () => {
   it('documents the storage layout and task schema', () => {
     expect(skill).toContain('.ikanban/board.yaml');
     expect(skill).toContain('column.yaml');
-    for (const field of ['id', 'title', 'description', 'tags', 'priority', 'position', 'createdAt', 'updatedAt']) {
+    for (const field of ['id', 'title', 'description', 'tags', 'priority', 'position', 'dueAt', 'createdAt', 'updatedAt']) {
       expect(skill).toContain(field);
     }
     expect(skill).toContain('checklists');

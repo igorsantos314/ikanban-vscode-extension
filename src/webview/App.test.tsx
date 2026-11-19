@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BoardSnapshot, TaskView } from '../shared/board';
 import type { BoardClientLike } from './api/boardClient';
 import type { BoardPushMessage, ProtocolRequestType } from '../shared/protocol';
+import { formatDeadline } from './formatDeadline';
 import { App } from './App';
 
 function task(overrides: Partial<TaskView> = {}): TaskView {
@@ -186,10 +187,13 @@ describe('App', () => {
     expect(screen.getByLabelText('Priority: High')).toBeInTheDocument();
     expect(screen.getByText('1/2')).toBeInTheDocument();
     expect(document.querySelector('time')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Delete task Fix login' })).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Move Fix login to the next column' }),
-    ).toBeInTheDocument();
+      screen.queryByRole('button', { name: 'Delete task Fix login' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Move Fix login to the next column' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('Fix login')).toHaveClass('task-card-compact-title');
 
     first.unmount();
     const second = fakeClient({ load: snapshot([task()]) });
@@ -202,6 +206,26 @@ describe('App', () => {
       ),
     );
     expect(screen.queryByText('Login fails on refresh')).not.toBeInTheDocument();
+  });
+
+  it('shows the deadline in expanded and compact cards', async () => {
+    const user = userEvent.setup();
+    const withDeadline = task({ dueAt: '2020-01-02T15:45:00.000Z' });
+    const { client } = fakeClient({ load: snapshot([withDeadline]) });
+    render(<App client={client} />);
+    await screen.findByText('Fix login');
+
+    expect(screen.getByText('overdue')).toBeInTheDocument();
+    const formatted = formatDeadline(withDeadline.dueAt)!;
+    expect(screen.getByText(formatted.full)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Compact' }));
+    const card = document.querySelector('[data-task-id="550e8400-e29b-41d4-a716-446655440000"]')!;
+    expect(card.querySelectorAll(':scope > .task-card-compact-title')).toHaveLength(1);
+    expect(card.querySelectorAll(':scope > .task-card-compact-meta')).toHaveLength(1);
+    expect(card.querySelector('.task-card-description')).toBeNull();
+    expect(card.querySelector('.task-card-footer')).toBeNull();
+    expect(screen.getByLabelText(`Deadline ${formatted.full}, overdue`)).toBeInTheDocument();
   });
 
   it('shows complete checklist progress and omits it when there are no items', async () => {
@@ -346,7 +370,8 @@ describe('App', () => {
     render(<App client={client} />);
     await screen.findByText('Fix login');
 
-    await user.click(screen.getByRole('button', { name: 'Delete task Fix login' }));
+    await user.click(screen.getByRole('button', { name: 'Open task Fix login' }));
+    await user.click(screen.getByRole('button', { name: 'Delete task' }));
     expect(screen.getByText(/Delete “Fix login”/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.queryByText('Fix login')).not.toBeInTheDocument());
@@ -363,7 +388,8 @@ describe('App', () => {
     const { client } = fakeClient({ load: snapshot([item]) });
     render(<App client={client} />);
     await screen.findByText('Fix login');
-    await user.click(screen.getByRole('button', { name: 'Delete task Fix login' }));
+    await user.click(screen.getByRole('button', { name: 'Open task Fix login' }));
+    await user.click(screen.getByRole('button', { name: 'Delete task' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByText('Fix login')).toBeInTheDocument();
@@ -466,11 +492,42 @@ describe('App', () => {
     });
     render(<App client={client} />);
     await screen.findByText('Fix login');
-    await user.click(screen.getByRole('button', { name: 'Move Fix login to the next column' }));
+    screen.getByRole('button', { name: 'Open task Fix login' }).focus();
+    await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
     await waitFor(() =>
       expect(request).toHaveBeenCalledWith(
         'task/move',
         expect.objectContaining({ toColumnId: 'done', targetIndex: 0 }),
+      ),
+    );
+  });
+
+  it('opens a card with Enter and reorders with Alt+Arrow', async () => {
+    const user = userEvent.setup();
+    const first = task({ id: '550e8400-e29b-41d4-a716-446655440050', title: 'First' });
+    const second = task({
+      id: '550e8400-e29b-41d4-a716-446655440051',
+      title: 'Second',
+      position: 2048,
+      revision: 'task-2-rev',
+    });
+    const { client, request } = fakeClient({ load: snapshot([first, second]) });
+    render(<App client={client} />);
+    await screen.findByText('First');
+
+    const firstCard = screen.getByRole('button', { name: 'Open task First' });
+    firstCard.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    firstCard.focus();
+    await user.keyboard('{Alt>}{ArrowDown}{/Alt}');
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        'task/move',
+        expect.objectContaining({ toColumnId: 'backlog', targetIndex: 1 }),
       ),
     );
   });

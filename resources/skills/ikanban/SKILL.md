@@ -91,6 +91,7 @@ updatedAt: "2026-11-18T10:00:00.000Z"
 | `position` | Non-negative integer used to order tasks inside the column. Prefer unique values spaced by `1024`. |
 | `checklists` | Array of checklists; each has a UUID `id`, non-empty `title`, non-negative integer `position` and an `items` array. |
 | checklist item | UUID `id`, non-empty `text`, boolean `completed` and non-negative integer `position`. |
+| `dueAt` | Optional ISO 8601 UTC instant with both date and time, for example `2026-11-25T14:30:00.000Z`. Omit the key when there is no deadline; never write a date without a time or a null placeholder. |
 | `createdAt` | ISO 8601 UTC instant, unchanged for the whole life of the task. |
 | `updatedAt` | ISO 8601 UTC instant, refreshed on every successful change. |
 
@@ -110,6 +111,7 @@ The default destination is usually `backlog`, but use whichever existing column 
 4. Read the tasks already in the target column and set `position` to the highest existing position plus `1024`, or `1024` when the column is empty.
 5. Write the file as `.ikanban/<column-id>/<task-id>.yaml` with the full schema above.
 6. Use `priority: medium`, `description: ""`, `tags: []` and `checklists: []` unless the user provided other values.
+7. Set `dueAt` only when the user requested a deadline, using one ISO 8601 UTC instant with date and time. Omit the key when there is no deadline.
 
 ```yaml
 id: "550e8400-e29b-41d4-a716-446655440000"
@@ -130,15 +132,16 @@ The VS Code command `iKanban: Create New Task` provides the same quick creation 
 1. Locate the task file by its ID and read its current content.
 2. Change only the fields the user requested.
 3. Preserve `id`, `createdAt`, column membership, `position` and unknown fields unless the request explicitly moves or reorders the task.
-4. Set `updatedAt` to the current UTC timestamp.
-5. Write the same file back and validate.
+4. Preserve `dueAt` when the deadline did not change. Replace it with one valid UTC instant when the user requested a new deadline, or remove the key when the user explicitly cleared the deadline.
+5. Set `updatedAt` to the current UTC timestamp.
+6. Write the same file back and validate.
 
 ### Move a task (change column / status)
 
 1. Locate the task file and note its source column.
 2. Confirm the target column exists in `board.yaml` and is different from the source.
 3. Read the target column and choose a position: after the current maximum (`max + 1024`), or between neighbours when the user requested a specific place.
-4. Set `updatedAt` to the current UTC timestamp and keep every other field, including `createdAt`.
+4. Set `updatedAt` to the current UTC timestamp and keep every other field, including `createdAt` and `dueAt`.
 5. Write `.ikanban/<target-column>/<task-id>.yaml` and remove the source file. Prefer a single rename/move when the environment supports it.
 6. Never overwrite an existing target file. If both copies exist afterwards, stop and report the problem instead of deleting data.
 
@@ -175,6 +178,7 @@ Before reporting success, confirm:
 - A new task has `createdAt == updatedAt`.
 - Every modification changed `updatedAt` and left `createdAt` intact.
 - Tags and priority are supported values.
+- A `dueAt`, when present, is one valid ISO 8601 UTC instant with both date and time; otherwise the key is absent.
 - Task, checklist and checklist-item IDs are unique.
 - Positions are non-negative integers and ordering matches the request.
 - The task is in exactly one column directory.

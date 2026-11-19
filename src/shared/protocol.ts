@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PRIORITIES } from '../domain/types';
 import { TAG_IDS } from '../domain/tags';
+import { isoTimestampSchema } from '../infrastructure/yaml/schemas';
 import type { BoardSnapshot } from './board';
 
 const emptyPayload = z.object({}).strict();
@@ -29,6 +30,7 @@ const taskDraftShape = {
   priority: z.enum(PRIORITIES),
   tags: z.array(z.enum(TAG_IDS)),
   checklists: z.array(checklistDraftSchema).optional(),
+  dueAt: isoTimestampSchema.nullable().optional(),
 };
 
 const boardLoad = z.object({

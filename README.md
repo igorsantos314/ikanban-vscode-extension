@@ -102,15 +102,17 @@ A column can only be deleted when it contains no task files. The final remaining
 
 ### Tasks
 
-Use **+ Add task** in a column, or open an existing card to edit it. Every column also displays its task count. Tasks can be moved with drag-and-drop or with the arrow buttons on each card. The card shows its priority icon, visual tags and checklist progress with a small progress bar.
+Use **+ Add task** in a column, or click anywhere on an existing card to edit it. Every column also displays its task count. A click opens the task; dragging anywhere on the card moves it. After a drag, the click is suppressed, so opening and moving do not conflict. Keyboard users can focus a card and press `Enter` to open it, `Alt+←/→` to move it between columns, or `Alt+↑/↓` to reorder it within its column.
 
 Drag-and-drop shows the card following the pointer, previews the target column and insertion point before you release it, reserves the space at the drop position and animates the card into place. The move is persisted only when you drop; a failed move restores the previous order and shows an error.
 
-Use the **Expanded** / **Compact** control in the toolbar to switch card density. **Expanded** shows the description, tag labels and last-updated time. **Compact** shows the title, priority icon, checklist progress and tag icons only. The choice is stored per workspace and restored when the board is reopened.
+Use the **Expanded** / **Compact** control in the toolbar to switch card density. **Expanded** shows the description, tag labels, checklist bar, deadline and last-updated time. **Compact** is exactly two lines: the title and one metadata line with priority icon, checklist count, tag icons and deadline. The choice is stored per workspace and restored when the board is reopened.
 
-When an existing task is open, the dialog shows read-only **Created** and **Last updated** timestamps. The creation time never changes; the last-updated time is refreshed after every successful edit, move, reorder or checklist change.
+A task can have an optional deadline with date and time. In the task dialog, fill the masked **DD/MM/AAAA** and **HH:MM** fields; separators are inserted automatically and the form moves from the date to the time field when the date is complete. Both fields are required when a deadline is set, and **Clear deadline** removes it. The card shows the deadline in your local timezone and marks an overdue deadline.
 
-Deleting a task asks for confirmation and removes only that task's YAML file.
+When an existing task is open, the dialog shows read-only **Created** and **Last updated** timestamps and a **Delete task** action. The creation time never changes; the last-updated time is refreshed after every successful edit, move, reorder or checklist change.
+
+Deleting a task is available from the task dialog and asks for confirmation. It removes only that task's YAML file.
 
 ### Tags
 
@@ -205,6 +207,7 @@ checklists:
         text: Integrate authentication provider
         completed: false
         position: 2048
+dueAt: "2026-11-25T14:30:00.000Z"
 createdAt: "2026-11-18T10:00:00.000Z"
 updatedAt: "2026-11-18T10:00:00.000Z"
 ```
@@ -217,6 +220,7 @@ Rules for manual editing:
 - `tags` is a list of supported identifiers and must not contain duplicates.
 - `priority` is `low`, `medium` or `high`.
 - `position` is a non-negative integer. Lower positions appear first. iKanban uses spaced integers (steps of 1024) and rebalances only the affected column when a gap is exhausted.
+- `dueAt` is optional. When present it must be one ISO 8601 UTC timestamp with both date and time, for example `2026-11-25T14:30:00.000Z`. Omit the key when there is no deadline; do not write `null` or a date-only value.
 - `createdAt` and `updatedAt` are ISO 8601 UTC timestamps. iKanban writes milliseconds, for example `2026-11-18T10:00:00.000Z`.
 - Checklist IDs and checklist item IDs must be UUIDs and must be unique in their scope.
 - Checklist item text and checklist titles are required.
@@ -271,7 +275,7 @@ npm run package
 - Only the four supported tags exist. There is no custom tag management.
 - Task descriptions are rendered as plain text. Markdown is not rendered and HTML is never interpreted.
 - Columns are reordered with header buttons rather than drag-and-drop.
-- Drag-and-drop uses pointer and keyboard sensors; arrow buttons provide a non-pointer fallback.
+- Drag-and-drop uses a pointer sensor and keyboard shortcuts (`Alt+Arrow`); there is no separate drag handle or arrow-button fallback.
 - There is no task virtualization. Very large boards may render slowly.
 - Multi-file operations are best-effort and can leave a valid intermediate state if the filesystem fails mid-operation. Failed moves and column deletions roll back where possible.
 - The webview has no hot reload; rebuild it after changing React or CSS files.

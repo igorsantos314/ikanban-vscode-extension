@@ -2,7 +2,7 @@
   "name": "ikanban",
   "displayName": "iKanban",
   "description": "Local-first Kanban board for VS Code, stored as portable YAML files.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "ikanban",
   "license": "MIT",
   "repository": {
@@ -77,7 +77,8 @@
         {
           "id": "ikanban.home",
           "name": "iKanban",
-          "type": "webview"
+          "type": "webview",
+          "icon": "resources/ikanban.svg"
         }
       ]
     }

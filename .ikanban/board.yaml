@@ -1,0 +1,6 @@
+version: 1
+name: ikanban
+columns:
+  - backlog
+  - in-progress
+  - done

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
 
 - Turned the Activity Bar home view into a state-aware launcher: it no longer opens the board automatically, offers Initialize only when the board is missing, and shows board and AI skill status.
 - Added explicit Install/Update AI skill actions based on comparing the workspace skill with the bundled skill, including after extension updates.

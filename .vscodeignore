@@ -2,6 +2,8 @@
 .vscode-test/**
 .ikanban/**
 .agents/**
+AGENTS.md
+scripts/**
 src/**
 openspec/**
 .opencode/**

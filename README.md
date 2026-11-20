@@ -262,6 +262,7 @@ npm run test:unit          # domain, YAML, persistence, protocol, React tests
 npm run test:integration   # real VS Code extension host tests
 npm run test               # both
 npm run check              # type checks + lint + unit tests
+npm run build:release      # clean + check + integration + VSIX package
 ```
 
 The unit suite includes real-file persistence tests against temporary directories, YAML round-trips for accents, emoji, CJK, quotes, reserved-looking words, multiline and HTML-like text, and React Testing Library tests for the board, task dialog, tags, checklists, validation panel and accessible modal behavior. The extension suite runs a real VS Code Extension Host against a fixture workspace and verifies initialization, commands, diagnostics and an end-to-end column/task/checklist/move/reload/delete flow.
@@ -278,6 +279,8 @@ npm run package
 ```
 
 `npm run build` compiles the Extension Host to `out/` and the webview to `dist/webview/assets/index.js` and `index.css`. `npm run package` builds and produces a `.vsix` with `vsce`. The package includes `out/**` and `dist/**` and excludes sources, tests, OpenSpec files and source maps.
+
+`npm run build:release` runs the local release pipeline: clean, type checks, lint, unit tests, integration tests and packaging. It prints the version, VSIX path, size and SHA256 at the end; the artifact is created in the repository root as `ikanban-<version>.vsix`.
 
 ## Known limitations
 

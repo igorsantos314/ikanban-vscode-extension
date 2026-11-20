@@ -386,6 +386,9 @@ export class YamlTaskRepository implements TaskRepository {
   }
 
   private async writeIndex(index: ColumnTaskIndex): Promise<void> {
+    if (!(await this.board.boardExists())) {
+      return;
+    }
     const directory = this.indexDirectory();
     if (!(await this.fs.exists(directory))) {
       await this.fs.createDirectory(directory);

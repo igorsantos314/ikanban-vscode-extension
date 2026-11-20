@@ -11,9 +11,27 @@ export interface ChecklistView extends Checklist {
   total: number;
 }
 
+export interface TaskCursor {
+  position: number;
+  taskId: string;
+}
+
 export interface ColumnView extends Column {
   revision: string;
   taskCount: number;
+  tasksRevision?: string;
+  nextCursor?: TaskCursor | null;
+  hasMore?: boolean;
+  loadedCount?: number;
+}
+
+export interface TaskPage {
+  columnId: string;
+  tasks: TaskView[];
+  nextCursor: TaskCursor | null;
+  hasMore: boolean;
+  taskCount: number;
+  tasksRevision: string;
 }
 
 export interface BoardView extends BoardConfig {

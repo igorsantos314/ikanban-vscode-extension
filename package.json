@@ -2,7 +2,7 @@
   "name": "ikanban",
   "displayName": "iKanban",
   "description": "Local-first Kanban board for VS Code, stored as portable YAML files.",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "publisher": "ikanban",
   "license": "MIT",
   "repository": {
@@ -10,7 +10,7 @@
     "url": "https://github.com/igorsantos314/ikanban-vscode-extension.git"
   },
   "engines": {
-    "vscode": "^1.146.0"
+    "vscode": "^1.147.0"
   },
   "categories": [
     "Other"
@@ -22,10 +22,6 @@
     "local-first"
   ],
   "activationEvents": [
-    "onCommand:ikanban.initialize",
-    "onCommand:ikanban.open",
-    "onCommand:ikanban.validate",
-    "onCommand:ikanban.refresh",
     "onWebviewPanel:ikanban.board"
   ],
   "main": "./out/extension.js",
@@ -47,6 +43,11 @@
         "category": "iKanban"
       },
       {
+        "command": "ikanban.createTask",
+        "title": "Create New Task",
+        "category": "iKanban"
+      },
+      {
         "command": "ikanban.validate",
         "title": "Validate Board",
         "category": "iKanban"
@@ -55,8 +56,32 @@
         "command": "ikanban.refresh",
         "title": "Refresh Board",
         "category": "iKanban"
+      },
+      {
+        "command": "ikanban.installAgentSkill",
+        "title": "Install AI Skill",
+        "category": "iKanban"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ikanban",
+          "title": "iKanban",
+          "icon": "resources/ikanban.svg"
+        }
+      ]
+    },
+    "views": {
+      "ikanban": [
+        {
+          "id": "ikanban.home",
+          "name": "iKanban",
+          "type": "webview",
+          "icon": "resources/ikanban.svg"
+        }
+      ]
+    }
   },
   "scripts": {
     "clean": "node -e \"const fs=require('node:fs');for (const dir of ['out','dist']) fs.rmSync(dir,{recursive:true,force:true})\"",
@@ -72,7 +97,8 @@
     "test:integration": "npm run build && vscode-test",
     "test": "npm run test:unit && npm run test:integration",
     "check": "npm run check:types && npm run lint && npm run test:unit",
-    "package": "npm run build && vsce package"
+    "package": "npm run build && vsce package",
+    "build:release": "node scripts/build-release.mjs"
   },
   "dependencies": {
     "yaml": "^2.9.1",

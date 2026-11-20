@@ -21,6 +21,7 @@ describe('webview protocol', () => {
         title: 'Task',
         priority: 'high',
         tags: ['feat'],
+        dueAt: '2026-11-25T14:30:00.000Z',
         checklists: [
           {
             title: 'Checklist',
@@ -33,6 +34,29 @@ describe('webview protocol', () => {
     if (result.ok) {
       expect(result.request.type).toBe('task/update');
     }
+  });
+
+  it('accepts null or a valid deadline and rejects a date-only deadline', () => {
+    const payload = {
+      ...base,
+      type: 'task/update' as const,
+      payload: {
+        taskId: '550e8400-e29b-41d4-a716-446655440000',
+        columnId: 'backlog',
+        expectedRevision: 'abc',
+        title: 'Task',
+        priority: 'high',
+        tags: [],
+        dueAt: null,
+      },
+    };
+    expect(parseProtocolRequest(payload).ok).toBe(true);
+    expect(
+      parseProtocolRequest({
+        ...payload,
+        payload: { ...payload.payload, dueAt: '2026-11-25' },
+      }).ok,
+    ).toBe(false);
   });
 
   it('rejects an unknown message type', () => {
@@ -109,5 +133,43 @@ describe('webview protocol', () => {
       ok: false,
       error: { code: 'ValidationError', message: 'Bad' },
     });
+  });
+});
+
+describe('task page protocol', () => {
+  it('accepts a paged request with a cursor', () => {
+    const result = parseProtocolRequest({
+      requestId: 'page-1',
+      type: 'task/page',
+      payload: {
+        columnId: 'backlog',
+        cursor: { position: 1024, taskId: 'task-1' },
+        expectedTasksRevision: 'rev-1',
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts a first-page request and rejects missing revisions', () => {
+    expect(
+      parseProtocolRequest({
+        requestId: 'page-2',
+        type: 'task/page',
+        payload: {
+          columnId: 'backlog',
+          cursor: null,
+          expectedTasksRevision: 'rev-1',
+          limit: 20,
+        },
+      }).ok,
+    ).toBe(true);
+
+    expect(
+      parseProtocolRequest({
+        requestId: 'page-3',
+        type: 'task/page',
+        payload: { columnId: 'backlog', cursor: null },
+      }).ok,
+    ).toBe(false);
   });
 });

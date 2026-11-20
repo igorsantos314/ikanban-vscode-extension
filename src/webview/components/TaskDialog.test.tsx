@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { ColumnView, TaskView } from '../../shared/board';
+import { joinLocalDeadline, splitDueAt } from '../../domain/deadline';
 import { TaskDialog, type TaskDialogPayload } from './TaskDialog';
 
 const columns: ColumnView[] = [
@@ -32,151 +33,309 @@ const existingTask: TaskView = {
       ],
     },
   ],
+  dueAt: '2026-11-25T14:30:00.000Z',
   createdAt: '2026-11-18T10:00:00.000Z',
   updatedAt: '2026-11-18T10:00:00.000Z',
   revision: 'task-rev',
 };
 
-describe('TaskDialog', () => {
-  it('validates the required title before saving', async () => {
-    const user = userEvent.setup();
-    const onSave = vi.fn();
-    render(
-      <TaskDialog columns={columns} initialColumnId="backlog" onSave={onSave} onClose={vi.fn()} />,
-    );
-    await user.click(screen.getByRole('button', { name: 'Create task' }));
-    expect(screen.getByText('Task title is required.')).toBeInTheDocument();
-    expect(screen.getByLabelText('Title')).toHaveAttribute(
-      'aria-describedby',
-      'task-title-error',
-    );
-    expect(onSave).not.toHaveBeenCalled();
+function savedFromPayload(
+  payload: TaskDialogPayload,
+  current: { id: string; revision: string } | null,
+): TaskView {
+  return {
+    ...existingTask,
+    id: current?.id ?? '550e8400-e29b-41d4-a716-446655440099',
+    title: payload.title,
+    description: payload.description,
+    columnId: payload.columnId,
+    tags: payload.tags,
+    priority: payload.priority,
+    checklists: payload.checklists.map((checklist, index) => ({
+      id: checklist.id ?? `${index}`,
+      title: checklist.title,
+      position: index * 1024,
+      items: checklist.items.map((item, itemIndex) => ({
+        id: item.id ?? `${index}-${itemIndex}`,
+        text: item.text,
+        completed: item.completed ?? false,
+        position: itemIndex * 1024,
+      })),
+    })),
+    dueAt: payload.dueAt ?? undefined,
+    revision: current ? `${current.revision}-next` : 'created-rev',
+  };
+}
+
+function renderDialog({
+  task,
+  onAutosave = vi.fn(async (payload: TaskDialogPayload, current: { id: string; revision: string } | null) =>
+    savedFromPayload(payload, current),
+  ),
+  onReload = vi.fn(async () => existingTask),
+  onClose = vi.fn(),
+  onDelete,
+  inert,
+}: {
+  task?: TaskView;
+  onAutosave?: (payload: TaskDialogPayload, current: { id: string; revision: string } | null) => Promise<TaskView>;
+  onReload?: (taskId: string) => Promise<TaskView>;
+  onClose?: () => void;
+  onDelete?: (task: TaskView) => void;
+  inert?: boolean;
+} = {}) {
+  return render(
+    <TaskDialog
+      task={task}
+      columns={columns}
+      initialColumnId="backlog"
+      onAutosave={onAutosave}
+      onReload={onReload}
+      onClose={onClose}
+      onDelete={onDelete}
+      inert={inert}
+    />,
+  );
+}
+
+async function waitForAutosave(onAutosave: ReturnType<typeof vi.fn>) {
+  await waitFor(() => expect(onAutosave).toHaveBeenCalled(), { timeout: 1500 });
+}
+
+describe('TaskDialog autosave', () => {
+  it('shows the automatic save label and only Delete/Voltar actions', () => {
+    renderDialog({ task: existingTask, onDelete: vi.fn() });
+    expect(screen.getByRole('status')).toHaveTextContent(/saved automatically/i);
+    expect(screen.getByRole('button', { name: /voltar/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete task' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save task/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /create task/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
   });
 
-  it('creates a task with tags, checklists and items', async () => {
+  it('starts existing text fields read-only and enables on click', async () => {
     const user = userEvent.setup();
-    const onSave = vi.fn(async (_payload: TaskDialogPayload) => undefined);
-    render(
-      <TaskDialog columns={columns} initialColumnId="backlog" onSave={onSave} onClose={vi.fn()} />,
+    renderDialog({ task: existingTask });
+    const title = screen.getByLabelText('Title');
+    expect(title).toHaveAttribute('readonly');
+    await user.click(title);
+    expect(title).not.toHaveAttribute('readonly');
+  });
+
+  it('autosaves title edits after the debounce', async () => {
+    const user = userEvent.setup();
+    const onAutosave = vi.fn(async (payload: TaskDialogPayload, current: { id: string; revision: string } | null) =>
+      savedFromPayload(payload, current),
     );
+    renderDialog({ task: existingTask, onAutosave });
+
+    const title = screen.getByLabelText('Title');
+    await user.click(title);
+    await user.clear(title);
+    await user.type(title, 'Updated title');
+
+    await waitForAutosave(onAutosave);
+    expect(onAutosave).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Updated title' }),
+      { id: existingTask.id, revision: existingTask.revision },
+    );
+  });
+
+  it('auto-creates a task from the first valid draft and then updates it', async () => {
+    const user = userEvent.setup();
+    const onAutosave = vi.fn(async (payload: TaskDialogPayload, current: { id: string; revision: string } | null) =>
+      savedFromPayload(payload, current),
+    );
+    renderDialog({ onAutosave });
 
     await user.type(screen.getByLabelText('Title'), 'New task');
-    await user.type(screen.getByLabelText('Description'), 'A description');
-    await user.selectOptions(screen.getByLabelText('Priority'), 'high');
-    await user.click(screen.getByRole('button', { name: /feature/i }));
-    await user.click(screen.getByRole('button', { name: /spec/i }));
+    await waitForAutosave(onAutosave);
+    expect(onAutosave).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'New task' }),
+      null,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Saved'),
+    );
 
-    await user.click(screen.getByRole('button', { name: '+ Add checklist' }));
-    await user.type(screen.getByLabelText('Checklist 1 title'), 'Implementation');
-    await user.click(screen.getByRole('button', { name: '+ Add item' }));
-    await user.type(screen.getByLabelText('Checklist 1 item 1 text'), 'First item');
-    await user.click(screen.getByRole('checkbox'));
-
-    await user.click(screen.getByRole('button', { name: 'Create task' }));
-
-    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
-    const payload = onSave.mock.calls[0]![0];
-    expect(payload).toMatchObject({
-      columnId: 'backlog',
-      title: 'New task',
-      description: 'A description',
-      priority: 'high',
-      tags: ['feat', 'spec'],
-    });
-    expect(payload.checklists[0]).toMatchObject({
-      title: 'Implementation',
-      items: [{ text: 'First item', completed: true }],
+    await user.selectOptions(screen.getByLabelText('Priority'), 'low');
+    await waitFor(() =>
+      expect(onAutosave).toHaveBeenCalledTimes(2),
+    );
+    expect(onAutosave.mock.calls[1]![1]).toMatchObject({
+      id: '550e8400-e29b-41d4-a716-446655440099',
     });
   });
 
-  it('loads an existing task for editing', () => {
-    render(
-      <TaskDialog
-        task={existingTask}
-        columns={columns}
-        onSave={vi.fn(async () => undefined)}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByLabelText('Title')).toHaveValue('Existing task');
-    expect(screen.getByLabelText('Description')).toHaveValue('Existing description');
-    expect(screen.getByLabelText('Column')).toHaveValue('backlog');
-    expect(screen.getByLabelText('Priority')).toHaveValue('high');
-    expect(screen.getByRole('button', { name: /feature/i })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    expect(screen.getByDisplayValue('Implementation')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('First item')).toBeInTheDocument();
-    expect(screen.getByRole('checkbox')).toBeChecked();
-  });
-
-  it('prevents duplicate submissions while saving', async () => {
+  it('does not create a task for an invalid draft and Voltar closes without a file', async () => {
     const user = userEvent.setup();
-    let resolveSave: (() => void) | undefined;
-    const onSave = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveSave = resolve;
+    const onAutosave = vi.fn(async (payload: TaskDialogPayload, current: { id: string; revision: string } | null) =>
+      savedFromPayload(payload, current),
+    );
+    const onClose = vi.fn();
+    renderDialog({ onAutosave, onClose });
+
+    await user.type(screen.getByLabelText('Deadline date'), '25112026');
+    await waitFor(() =>
+      expect(screen.getByText('Fill in both the deadline date and time.')).toBeInTheDocument(),
+      { timeout: 1500 },
+    );
+    await user.click(screen.getByRole('button', { name: /voltar/i }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onAutosave).not.toHaveBeenCalled();
+  });
+
+  it('flushes a pending autosave when Voltar is activated', async () => {
+    const user = userEvent.setup();
+    const onAutosave = vi.fn(async (payload: TaskDialogPayload, current: { id: string; revision: string } | null) =>
+      savedFromPayload(payload, current),
+    );
+    const onClose = vi.fn();
+    renderDialog({ task: existingTask, onAutosave, onClose });
+
+    const title = screen.getByLabelText('Title');
+    await user.click(title);
+    await user.type(title, ' flush');
+    await user.click(screen.getByRole('button', { name: /voltar/i }));
+
+    await waitFor(() => expect(onAutosave).toHaveBeenCalled());
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
+  it('keeps the local draft and offers Reload on conflict', async () => {
+    const user = userEvent.setup();
+    const reloaded = { ...existingTask, title: 'External title', revision: 'external' };
+    const onAutosave = vi.fn(async () => {
+      throw Object.assign(new Error('This task was modified outside iKanban.'), {
+        code: 'ConflictError',
+      });
+    });
+    const onReload = vi.fn(async () => reloaded);
+    renderDialog({ task: existingTask, onAutosave, onReload });
+
+    const title = screen.getByLabelText('Title');
+    await user.click(title);
+    await user.type(title, ' local');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument());
+    expect(title).toHaveValue('Existing task local');
+
+    await user.click(screen.getByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('External title'));
+  });
+
+  it('rejects partial deadlines without autosaving', async () => {
+    const user = userEvent.setup();
+    const onAutosave = vi.fn(async (payload: TaskDialogPayload, current: { id: string; revision: string } | null) =>
+      savedFromPayload(payload, current),
+    );
+    renderDialog({ task: existingTask, onAutosave });
+
+    await user.click(screen.getByLabelText('Deadline date'));
+    await user.clear(screen.getByLabelText('Deadline time'));
+    await waitFor(() =>
+      expect(screen.getByText('Fill in both the deadline date and time.')).toBeInTheDocument(),
+      { timeout: 1500 },
+    );
+    expect(onAutosave).not.toHaveBeenCalled();
+  });
+
+  it('shows Delete only for existing tasks', async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn();
+    const first = renderDialog({ onDelete });
+    expect(screen.queryByRole('button', { name: 'Delete task' })).not.toBeInTheDocument();
+    first.unmount();
+
+    renderDialog({ task: existingTask, onDelete });
+    await user.click(screen.getByRole('button', { name: 'Delete task' }));
+    expect(onDelete).toHaveBeenCalledWith(existingTask);
+  });
+
+  it('loads the persisted deadline and checklist values', () => {
+    const parts = splitDueAt(existingTask.dueAt!);
+    renderDialog({ task: existingTask });
+    expect(screen.getByLabelText('Deadline date')).toHaveValue(parts?.date);
+    expect(screen.getByLabelText('Deadline time')).toHaveValue(parts?.time);
+    expect(screen.getByDisplayValue('Implementation')).toHaveAttribute('readonly');
+    expect(screen.getByDisplayValue('First item')).toHaveAttribute('readonly');
+  });
+
+  it('marks new checklist fields editable immediately', async () => {
+    const user = userEvent.setup();
+    renderDialog({ task: existingTask });
+    await user.click(screen.getByRole('button', { name: '+ Add checklist' }));
+    const title = screen.getByLabelText('Checklist 2 title');
+    expect(title).not.toHaveAttribute('readonly');
+  });
+
+  it('clears an existing deadline by autosave', async () => {
+    const user = userEvent.setup();
+    const onAutosave = vi.fn(async (payload: TaskDialogPayload, current: { id: string; revision: string } | null) =>
+      savedFromPayload(payload, current),
+    );
+    renderDialog({ task: existingTask, onAutosave });
+
+    await user.click(screen.getByRole('button', { name: 'Clear deadline' }));
+    await waitFor(() =>
+      expect(onAutosave).toHaveBeenCalledWith(
+        expect.objectContaining({ dueAt: null }),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it('coalesces rapid edits while a save is in flight', async () => {
+    const user = userEvent.setup();
+    const resolvers: Array<() => void> = [];
+    const onAutosave = vi.fn(
+      (payload: TaskDialogPayload, current: { id: string; revision: string } | null) =>
+        new Promise<TaskView>((resolve) => {
+          resolvers.push(() => resolve(savedFromPayload(payload, current)));
         }),
     );
-    render(
-      <TaskDialog columns={columns} initialColumnId="backlog" onSave={onSave} onClose={vi.fn()} />,
-    );
-    await user.type(screen.getByLabelText('Title'), 'Slow task');
-    await user.click(screen.getByRole('button', { name: 'Create task' }));
-    await user.click(screen.getByRole('button', { name: 'Saving…' }));
-    expect(onSave).toHaveBeenCalledOnce();
-    resolveSave?.();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Create task' })).toBeEnabled());
+    renderDialog({ onAutosave });
+
+    await user.type(screen.getByLabelText('Title'), 'First');
+    await waitForAutosave(onAutosave);
+
+    await user.type(screen.getByLabelText('Title'), ' more');
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(onAutosave).toHaveBeenCalledTimes(1);
+
+    resolvers[0]?.();
+    await waitFor(() => expect(onAutosave).toHaveBeenCalledTimes(2));
+    expect(onAutosave.mock.calls[1]![0].title).toBe('First more');
   });
 
-  it('keeps the dialog and entered data when saving fails', async () => {
+  it('exposes the local deadline conversion when saving', async () => {
     const user = userEvent.setup();
-    const onSave = vi.fn(async () => {
-      throw new Error('This task was modified outside iKanban. Reload before saving.');
-    });
-    render(
-      <TaskDialog columns={columns} initialColumnId="backlog" onSave={onSave} onClose={vi.fn()} />,
+    const onAutosave = vi.fn(async (payload: TaskDialogPayload, current: { id: string; revision: string } | null) =>
+      savedFromPayload(payload, current),
     );
-    await user.type(screen.getByLabelText('Title'), 'Failing task');
-    await user.click(screen.getByRole('button', { name: 'Create task' }));
-    expect(
-      await screen.findByText('This task was modified outside iKanban. Reload before saving.'),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText('Title')).toHaveValue('Failing task');
-    expect(screen.getByRole('button', { name: 'Create task' })).toBeInTheDocument();
-  });
+    renderDialog({ onAutosave });
 
-  it('confirms before discarding unsaved changes', async () => {
+    await user.type(screen.getByLabelText('Title'), 'Deadline task');
+    await user.type(screen.getByLabelText('Deadline date'), '251120261430');
+    await waitForAutosave(onAutosave);
+    expect(onAutosave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dueAt: joinLocalDeadline('25/11/2026', '14:30'),
+      }),
+      null,
+    );
+  });
+});
+
+describe('TaskDialog close without changes', () => {
+  it('closes without autosaving when nothing changed', async () => {
     const user = userEvent.setup();
+    const onAutosave = vi.fn(async (payload: TaskDialogPayload, current: { id: string; revision: string } | null) =>
+      savedFromPayload(payload, current),
+    );
     const onClose = vi.fn();
-    render(
-      <TaskDialog columns={columns} initialColumnId="backlog" onSave={vi.fn()} onClose={onClose} />,
-    );
-    await user.type(screen.getByLabelText('Title'), 'Dirty');
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.getByText('Discard unsaved changes?')).toBeInTheDocument();
-    expect(onClose).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
-    expect(screen.getByLabelText('Title')).toHaveValue('Dirty');
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    await user.click(screen.getByRole('button', { name: 'Discard' }));
-    expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it('shows an empty checklist state and supports deleting checklists', async () => {
-    const user = userEvent.setup();
-    render(
-      <TaskDialog
-        task={existingTask}
-        columns={columns}
-        onSave={vi.fn(async () => undefined)}
-        onClose={vi.fn()}
-      />,
-    );
-    await user.click(screen.getByRole('button', { name: /delete checklist implementation/i }));
-    expect(screen.queryByDisplayValue('Implementation')).not.toBeInTheDocument();
+    renderDialog({ task: existingTask, onAutosave, onClose });
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(onAutosave).not.toHaveBeenCalled();
   });
 });

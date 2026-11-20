@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PRIORITIES } from '../domain/types';
 import { TAG_IDS } from '../domain/tags';
+import { isoTimestampSchema } from '../infrastructure/yaml/schemas';
 import type { BoardSnapshot } from './board';
 
 const emptyPayload = z.object({}).strict();
@@ -29,6 +30,7 @@ const taskDraftShape = {
   priority: z.enum(PRIORITIES),
   tags: z.array(z.enum(TAG_IDS)),
   checklists: z.array(checklistDraftSchema).optional(),
+  dueAt: isoTimestampSchema.nullable().optional(),
 };
 
 const boardLoad = z.object({
@@ -260,6 +262,25 @@ const fileOpen = z.object({
     .strict(),
 });
 
+const taskPage = z.object({
+  type: z.literal('task/page'),
+  requestId: z.string().min(1),
+  payload: z
+    .object({
+      columnId: z.string(),
+      cursor: z
+        .object({
+          position: z.number().int().nonnegative(),
+          taskId: z.string(),
+        })
+        .strict()
+        .nullable(),
+      expectedTasksRevision: revisionSchema,
+      limit: z.number().int().positive().max(100).optional(),
+    })
+    .strict(),
+});
+
 export const protocolRequestSchema = z.discriminatedUnion('type', [
   boardLoad,
   boardInitialize,
@@ -272,6 +293,7 @@ export const protocolRequestSchema = z.discriminatedUnion('type', [
   taskUpdate,
   taskDelete,
   taskMove,
+  taskPage,
   checklistCreate,
   checklistUpdate,
   checklistDelete,

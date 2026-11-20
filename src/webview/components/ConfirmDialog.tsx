@@ -7,6 +7,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   busy,
+  stacked,
 }: {
   title: string;
   message: string;
@@ -14,11 +15,13 @@ export function ConfirmDialog({
   onConfirm(): void;
   onCancel(): void;
   busy?: boolean;
+  stacked?: boolean;
 }) {
   return (
     <Modal
       title={title}
       onRequestClose={onCancel}
+      stacked={stacked}
       footer={
         <>
           <button type="button" className="btn" onClick={onCancel} disabled={busy}>

@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import type { ChecklistDraftState } from './checklistDraft';
 import { newClientId } from './checklistDraft';
+import { ClickToEditInput } from './ClickToEditField';
 
 export function ChecklistEditor({
   checklists,
@@ -10,11 +12,18 @@ export function ChecklistEditor({
   errors: Record<string, string>;
   onChange(next: ChecklistDraftState[]): void;
 }) {
+  const [editableIds, setEditableIds] = useState<Set<string>>(() => new Set());
+  const markEditable = (id: string) =>
+    setEditableIds((current) => {
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+
   const addChecklist = () => {
-    onChange([
-      ...checklists,
-      { id: newClientId(), title: '', items: [] },
-    ]);
+    const id = newClientId();
+    markEditable(id);
+    onChange([...checklists, { id, title: '', items: [] }]);
   };
 
   const updateChecklist = (id: string, update: Partial<ChecklistDraftState>) => {
@@ -26,9 +35,11 @@ export function ChecklistEditor({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {checklists.length === 0 ? (
-        <p className="text-sm opacity-70">No checklists yet.</p>
+        <p className="text-xs" style={{ color: 'var(--ikanban-muted)' }}>
+          No checklists yet.
+        </p>
       ) : null}
 
       {checklists.map((checklist, checklistIndex) => {
@@ -37,21 +48,22 @@ export function ChecklistEditor({
         return (
           <section
             key={checklist.id}
-            className="rounded border p-3"
-            style={{ borderColor: 'var(--vscode-widget-border)' }}
+            className="checklist-card"
             aria-label={`Checklist ${checklistIndex + 1}`}
           >
-            <div className="flex items-center gap-2">
-              <input
+            <div className="checklist-header">
+              <ClickToEditInput
                 className="input flex-1"
                 value={checklist.title}
+                onValueChange={(value) => updateChecklist(checklist.id, { title: value })}
                 placeholder="Checklist title"
                 aria-label={`Checklist ${checklistIndex + 1} title`}
                 aria-invalid={Boolean(titleError)}
                 aria-describedby={titleError ? `checklist-title-${checklist.id}` : undefined}
-                onChange={(event) => updateChecklist(checklist.id, { title: event.target.value })}
+                initiallyEditable={editableIds.has(checklist.id)}
+                reveal={Boolean(titleError)}
               />
-              <span className="text-xs opacity-70" aria-label="Checklist progress">
+              <span className="checklist-progress" aria-label="Checklist progress">
                 {completed}/{checklist.items.length}
               </span>
               <button
@@ -64,19 +76,20 @@ export function ChecklistEditor({
               </button>
             </div>
             {titleError ? (
-              <p id={`checklist-title-${checklist.id}`} role="alert" className="error-text mt-1">
+              <p id={`checklist-title-${checklist.id}`} role="alert" className="error-text">
                 {titleError}
               </p>
             ) : null}
 
-            <div className="mt-3 space-y-2">
+            <div className="mt-1 space-y-1">
               {checklist.items.map((item, itemIndex) => {
                 const itemError = errors[`checklists.${checklist.id}.items.${item.id}.text`];
                 return (
                   <div key={item.id}>
-                    <div className="flex items-center gap-2">
+                    <div className="checklist-row">
                       <input
                         type="checkbox"
+                        className="checklist-checkbox"
                         checked={item.completed}
                         aria-label={`Complete item ${itemIndex + 1} in ${checklist.title || 'checklist'}`}
                         onChange={(event) =>
@@ -89,22 +102,24 @@ export function ChecklistEditor({
                           })
                         }
                       />
-                      <input
+                      <ClickToEditInput
                         className="input flex-1"
                         value={item.text}
-                        placeholder="Item text"
-                        aria-label={`Checklist ${checklistIndex + 1} item ${itemIndex + 1} text`}
-                        aria-invalid={Boolean(itemError)}
-                        aria-describedby={itemError ? `item-error-${item.id}` : undefined}
-                        onChange={(event) =>
+                        onValueChange={(value) =>
                           updateChecklist(checklist.id, {
                             items: checklist.items.map((candidate) =>
                               candidate.id === item.id
-                                ? { ...candidate, text: event.target.value }
+                                ? { ...candidate, text: value }
                                 : candidate,
                             ),
                           })
                         }
+                        placeholder="Item text"
+                        aria-label={`Checklist ${checklistIndex + 1} item ${itemIndex + 1} text`}
+                        aria-invalid={Boolean(itemError)}
+                        aria-describedby={itemError ? `item-error-${item.id}` : undefined}
+                        initiallyEditable={editableIds.has(item.id)}
+                        reveal={Boolean(itemError)}
                       />
                       <button
                         type="button"
@@ -131,15 +146,17 @@ export function ChecklistEditor({
 
             <button
               type="button"
-              className="btn mt-3"
-              onClick={() =>
+              className="btn self-start"
+              onClick={() => {
+                const id = newClientId();
+                markEditable(id);
                 updateChecklist(checklist.id, {
                   items: [
                     ...checklist.items,
-                    { id: newClientId(), text: '', completed: false },
+                    { id, text: '', completed: false },
                   ],
-                })
-              }
+                });
+              }}
             >
               + Add item
             </button>
@@ -147,7 +164,7 @@ export function ChecklistEditor({
         );
       })}
 
-      <button type="button" className="btn" onClick={addChecklist}>
+      <button type="button" className="btn self-start" onClick={addChecklist}>
         + Add checklist
       </button>
     </div>

@@ -26,6 +26,7 @@ export function toPersistedTask(task: Task): Record<string, unknown> {
         position: item.position,
       })),
     })),
+    ...(task.dueAt ? { dueAt: task.dueAt } : {}),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };
@@ -74,7 +75,11 @@ export function updateDocument(
   }
 
   for (const [key, value] of Object.entries(updates)) {
-    document.set(key, value);
+    if (value === undefined) {
+      document.delete(key);
+    } else {
+      document.set(key, value);
+    }
   }
 
   return document.toString({ lineWidth: 0, minContentWidth: 0 });

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { Modal } from './Modal';
 
@@ -64,5 +64,29 @@ describe('Modal', () => {
     const dialog = screen.getByRole('dialog');
     fireEvent.mouseDown(dialog.parentElement!);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps the lower modal inert and closes only the stacked one', () => {
+    const closeBase = vi.fn();
+    const closeStacked = vi.fn();
+    render(
+      <>
+        <Modal title="Task details" onRequestClose={closeBase} inert>
+          <p>Details</p>
+        </Modal>
+        <Modal title="Delete task" onRequestClose={closeStacked} stacked>
+          <p>Confirm</p>
+        </Modal>
+      </>,
+    );
+    const dialogs = document.querySelectorAll('[role="dialog"]');
+    expect(dialogs).toHaveLength(2);
+    expect(dialogs[0]).toHaveAttribute('aria-hidden', 'true');
+    expect(dialogs[0]).toHaveAttribute('inert');
+    expect(dialogs[1]).not.toHaveAttribute('aria-hidden');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(closeStacked).toHaveBeenCalledOnce();
+    expect(closeBase).not.toHaveBeenCalled();
   });
 });

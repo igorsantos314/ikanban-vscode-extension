@@ -1,4 +1,7 @@
 import type { BoardConfig, Column, Task } from '../domain/types';
+import type { ColumnTaskIndex } from './taskPagination';
+import type { TaskCursor } from '../shared/board';
+import type { ValidationIssue } from '../shared/validationIssue';
 
 export interface UriLike {
   readonly scheme: string;
@@ -53,6 +56,21 @@ export interface TaskFileRef {
   uri: UriLike;
 }
 
+export interface ColumnIndexResult {
+  index: ColumnTaskIndex;
+  issues: ValidationIssue[];
+  rebuilt: boolean;
+}
+
+export interface TaskPageResult {
+  tasks: Array<{ task: Task; revision: string; uri: string }>;
+  issues: ValidationIssue[];
+  nextCursor: TaskCursor | null;
+  hasMore: boolean;
+  taskCount: number;
+  tasksRevision: string;
+}
+
 export interface BoardRepository {
   readonly ikanbanUri: UriLike;
   readonly boardUri: UriLike;
@@ -87,6 +105,16 @@ export interface TaskRepository {
     toColumnId: string,
     expectedRevision: string,
   ): Promise<{ revision: string }>;
+
+  ensureColumnIndex(columnId: string): Promise<ColumnIndexResult>;
+  readTaskPage(
+    columnId: string,
+    cursor: TaskCursor | null,
+    limit: number,
+    expectedRevision: string,
+  ): Promise<TaskPageResult>;
+  invalidateColumnIndex(columnId: string): Promise<void>;
+  invalidateAllIndexes(): Promise<void>;
 }
 
 export interface Clock {

@@ -1,74 +1,117 @@
-import { useDroppable } from '@dnd-kit/core';
+import { useEffect, useRef, type CSSProperties } from 'react';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { ColumnView, TaskView } from '../../shared/board';
-import { TaskCard } from './TaskCard';
+import type { CardLayout } from '../cardLayout';
+import type { ColumnPageState } from '../state/boardState';
+import { TaskCard, type KeyboardMoveDirection } from './TaskCard';
 
 export function BoardColumn({
   column,
   tasks,
-  canMoveLeft,
-  canMoveRight,
+  cardLayout,
+  isDropTarget,
+  page,
+  onLoadMore,
   onAddTask,
   onEditTask,
-  onDeleteTask,
-  onMoveTaskLeft,
-  onMoveTaskRight,
+  onKeyboardMoveTask,
+  onReorderColumn,
   onEditColumn,
   onDeleteColumn,
-  onMoveColumnLeft,
-  onMoveColumnRight,
   dragDisabled,
 }: {
   column: ColumnView;
   tasks: readonly TaskView[];
-  canMoveLeft: boolean;
-  canMoveRight: boolean;
+  cardLayout: CardLayout;
+  isDropTarget?: boolean;
+  page?: ColumnPageState;
+  onLoadMore(columnId: string): void;
   onAddTask(column: ColumnView): void;
   onEditTask(task: TaskView): void;
-  onDeleteTask(task: TaskView): void;
-  onMoveTaskLeft(task: TaskView): void;
-  onMoveTaskRight(task: TaskView): void;
+  onKeyboardMoveTask(task: TaskView, direction: KeyboardMoveDirection): void;
+  onReorderColumn(column: ColumnView, direction: -1 | 1): void;
   onEditColumn(column: ColumnView): void;
   onDeleteColumn(column: ColumnView): void;
-  onMoveColumnLeft(column: ColumnView): void;
-  onMoveColumnRight(column: ColumnView): void;
   dragDisabled?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `column:${column.id}` });
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (
+      !page?.hasMore ||
+      page.status === 'loading' ||
+      !sentinel ||
+      typeof IntersectionObserver === 'undefined'
+    ) {
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMore(column.id);
+        }
+      },
+      { root: scrollRef.current, rootMargin: '120px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [column.id, onLoadMore, page?.hasMore, page?.status]);
+  const {
+    listeners,
+    setNodeRef: setHeaderRef,
+    isDragging: isHeaderDragging,
+  } = useDraggable({
+    id: `column-drag:${column.id}`,
+    data: { kind: 'column', columnId: column.id },
+    disabled: dragDisabled,
+  });
 
   return (
     <section
       ref={setNodeRef}
-      className={`board-column ${isOver ? 'board-column-over' : ''}`}
-      style={{ borderTopColor: column.color }}
+      className={`board-column ${isOver || isDropTarget ? 'board-column-over' : ''}`}
+      style={{ '--column-color': column.color } as CSSProperties}
       aria-label={`${column.title} column`}
     >
-      <header className="flex items-start justify-between gap-2 border-b px-3 py-2">
-        <div className="min-w-0">
-          <h2 className="truncate font-semibold">{column.title}</h2>
-          <p className="text-xs opacity-70" aria-label={`${tasks.length} tasks`}>
-            {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}
-          </p>
+      <header
+        ref={setHeaderRef}
+        className={`column-header ${isHeaderDragging ? 'column-header-dragging' : ''}`}
+        tabIndex={0}
+        aria-label={`${column.title} column header`}
+        aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
+        title="Drag the header to reorder. Alt+Arrow moves the column."
+        onKeyDown={(event) => {
+          if (!event.altKey) {
+            return;
+          }
+          if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            onReorderColumn(column, -1);
+          } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            onReorderColumn(column, 1);
+          }
+        }}
+        {...listeners}
+      >
+        <div className="column-identity">
+          <span className="column-dot" aria-hidden="true" />
+          <h2 className="column-title">{column.title}</h2>
+          <span
+            className="column-count"
+            aria-label={`${column.taskCount} ${column.taskCount === 1 ? 'task' : 'tasks'}`}
+          >
+            {column.taskCount}
+          </span>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={`Move ${column.title} column left`}
-            disabled={!canMoveLeft}
-            onClick={() => onMoveColumnLeft(column)}
-          >
-            ‹
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={`Move ${column.title} column right`}
-            disabled={!canMoveRight}
-            onClick={() => onMoveColumnRight(column)}
-          >
-            ›
-          </button>
+        <div
+          className="column-actions"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
           <button
             type="button"
             className="icon-button"
@@ -88,7 +131,16 @@ export function BoardColumn({
         </div>
       </header>
 
-      <div className="column-scroll flex flex-1 flex-col gap-2 overflow-y-auto p-2">
+      <div className="column-scroll" ref={scrollRef}>
+        <button
+          type="button"
+          className="column-add"
+          onClick={() => onAddTask(column)}
+          aria-label={`Add task to ${column.title}`}
+        >
+          <span aria-hidden="true">+</span> Add task
+        </button>
+
         <SortableContext
           items={tasks.map((task) => task.id)}
           strategy={verticalListSortingStrategy}
@@ -97,31 +149,66 @@ export function BoardColumn({
             <TaskCard
               key={task.id}
               task={task}
+              cardLayout={cardLayout}
               onEdit={onEditTask}
-              onDelete={onDeleteTask}
-              onMoveLeft={canMoveLeft ? onMoveTaskLeft : undefined}
-              onMoveRight={canMoveRight ? onMoveTaskRight : undefined}
+              onKeyboardMove={onKeyboardMoveTask}
               dragDisabled={dragDisabled}
             />
           ))}
         </SortableContext>
-        {tasks.length === 0 ? (
-          <p className="rounded border border-dashed p-4 text-center text-xs opacity-60">
-            No tasks yet
+        {tasks.length === 0 && column.taskCount === 0 ? (
+          <p className="column-empty">No tasks yet</p>
+        ) : null}
+
+        <div ref={sentinelRef} className="column-page-sentinel" aria-hidden="true" />
+
+        {page?.status === 'loading' ? (
+          <p className="column-page-state" role="status">
+            Loading more tasks…
           </p>
+        ) : page?.status === 'error' ? (
+          <div className="column-page-state">
+            <span role="alert">{page.error ?? 'Could not load more tasks.'}</span>
+            <button type="button" className="btn" onClick={() => onLoadMore(column.id)}>
+              Retry
+            </button>
+          </div>
+        ) : page?.hasMore ? (
+          <button
+            type="button"
+            className="btn column-load-more"
+            onClick={() => onLoadMore(column.id)}
+          >
+            Load more
+          </button>
+        ) : (column.loadedCount ?? tasks.length) > 0 && column.taskCount > tasks.length ? (
+          <p className="column-page-state">End of loaded tasks.</p>
         ) : null}
       </div>
+    </section>
+  );
+}
 
-      <footer className="border-t p-2">
-        <button
-          type="button"
-          className="btn w-full"
-          onClick={() => onAddTask(column)}
-          aria-label={`Add task to ${column.title}`}
-        >
-          + Add task
-        </button>
-      </footer>
+export function ColumnOverlay({
+  column,
+  taskCount,
+}: {
+  column: ColumnView;
+  taskCount: number;
+}) {
+  return (
+    <section
+      className="board-column column-overlay-content"
+      style={{ '--column-color': column.color } as CSSProperties}
+      aria-hidden="true"
+    >
+      <header className="column-header">
+        <div className="column-identity">
+          <span className="column-dot" aria-hidden="true" />
+          <h2 className="column-title">{column.title}</h2>
+          <span className="column-count">{taskCount}</span>
+        </div>
+      </header>
     </section>
   );
 }

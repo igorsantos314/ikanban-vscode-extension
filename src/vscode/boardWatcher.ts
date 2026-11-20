@@ -15,6 +15,7 @@ export class BoardWatcher {
     private readonly store: YamlFileStore,
     private readonly onReload: () => Promise<void>,
     private readonly log?: (message: string, error?: unknown) => void,
+    private readonly onExternalFiles?: (uris: readonly string[]) => Promise<void>,
   ) {
     this.watcher = workspace.createFileSystemWatcher(
       new RelativePattern(rootUri as Uri, '.ikanban/**/*.yaml'),
@@ -70,6 +71,7 @@ export class BoardWatcher {
     }
 
     try {
+      await this.onExternalFiles?.(uris);
       await this.onReload();
     } catch (error) {
       this.log?.('Watcher reload failed', error);

@@ -64,6 +64,21 @@ describe('YAML serialization', () => {
     expect(serialized).toMatch(/description: ['"]true['"]/);
   });
 
+  it('serializes an optional deadline only when present', () => {
+    expect(serializeTask(makeTask('no deadline'))).not.toContain('dueAt:');
+    expect(
+      serializeTask({ ...makeTask('deadline'), dueAt: '2026-11-25T14:30:00.000Z' }),
+    ).toContain('dueAt: 2026-11-25T14:30:00.000Z');
+  });
+
+  it('removes a deadline key on update while preserving other comments', () => {
+    const raw = `# leading comment\ntitle: Old\ndueAt: 2026-11-25T14:30:00.000Z\ncustom: kept\n`;
+    const updated = updateDocument(raw, { dueAt: undefined }, 'file:///task.yaml');
+    expect(updated).not.toContain('dueAt:');
+    expect(updated).toContain('# leading comment');
+    expect(updated).toContain('custom: kept');
+  });
+
   it('parses CRLF documents and writes valid YAML after an update', () => {
     const raw = serializeTask(makeTask('first')).replace(/\n/g, '\r\n');
     expect(parseYaml(raw, 'file:///task.yaml').ok).toBe(true);

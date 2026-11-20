@@ -2,32 +2,62 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { TaskView } from '../../shared/board';
 import { getChecklistProgress } from '../../domain/checklist';
+import type { CardLayout } from '../cardLayout';
+import { formatDeadline } from '../formatDeadline';
+import { formatTimestamp } from '../formatTimestamp';
+import { PRIORITY_VISUALS, PriorityIcon } from '../priorityVisuals';
+import { ChecklistProgress } from './ChecklistProgress';
 import { TagChip } from './TagChip';
 
-const PRIORITY_LABELS = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-} as const;
+export type KeyboardMoveDirection = 'left' | 'right' | 'up' | 'down';
 
-export function TaskCard({
-  task,
-  onEdit,
-  onDelete,
-  onMoveLeft,
-  onMoveRight,
-  dragDisabled,
-}: {
+function ClockIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="11"
+      height="11"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="11"
+      height="11"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4M8 3v4M3 11h18" />
+    </svg>
+  );
+}
+
+interface TaskCardContentProps {
   task: TaskView;
-  onEdit(task: TaskView): void;
-  onDelete(task: TaskView): void;
-  onMoveLeft?(task: TaskView): void;
-  onMoveRight?(task: TaskView): void;
-  dragDisabled?: boolean;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: task.id, disabled: dragDisabled });
+  cardLayout: CardLayout;
+}
 
+export function TaskCardContent({ task, cardLayout }: TaskCardContentProps) {
+  const compact = cardLayout === 'compact';
+  const priority = PRIORITY_VISUALS[task.priority];
+  const deadline = formatDeadline(task.dueAt, { compact });
   const progress = task.checklists.reduce(
     (accumulator, checklist) => {
       const current = getChecklistProgress(checklist);
@@ -39,89 +69,187 @@ export function TaskCard({
     { completed: 0, total: 0 },
   );
 
-  return (
-    <article
-      ref={setNodeRef}
-      className={`task-card ${isDragging ? 'task-card-dragging' : ''}`}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      data-task-id={task.id}
-    >
-      <div className="flex items-start gap-2">
-        <button
-          type="button"
-          className="drag-handle"
-          aria-label={`Drag task ${task.title}`}
-          {...attributes}
-          {...listeners}
-          disabled={dragDisabled}
-        >
-          ⋮⋮
-        </button>
-        <button
-          type="button"
-          className="line-clamp-3 flex-1 text-left font-semibold hover:underline"
-          onClick={() => onEdit(task)}
-        >
+  if (compact) {
+    return (
+      <>
+        <span className="task-card-compact-title" title={task.title}>
           {task.title}
-        </button>
+        </span>
+        <div className="task-card-compact-meta">
+          <span
+            className={`priority-badge priority-${task.priority} priority-badge-compact`}
+            title={`Priority: ${priority.label}`}
+            aria-label={`Priority: ${priority.label}`}
+          >
+            <PriorityIcon priority={task.priority} />
+          </span>
+          {progress.total > 0 ? (
+            <ChecklistProgress compact completed={progress.completed} total={progress.total} />
+          ) : null}
+          {task.tags.length > 0 ? (
+            <span className="task-card-compact-tags">
+              {task.tags.map((tag) => (
+                <TagChip key={tag} tag={tag} compact />
+              ))}
+            </span>
+          ) : null}
+          {deadline ? (
+            <time
+              className={`task-card-deadline ${deadline.overdue ? 'task-card-deadline-overdue' : ''}`}
+              dateTime={task.dueAt}
+              title={`Deadline: ${deadline.full}${deadline.overdue ? ' (overdue)' : ''}`}
+              aria-label={`Deadline ${deadline.full}${deadline.overdue ? ', overdue' : ''}`}
+            >
+              {deadline.label}
+            </time>
+          ) : null}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="task-card-meta">
         <span
           className={`priority-badge priority-${task.priority}`}
-          title={`Priority: ${PRIORITY_LABELS[task.priority]}`}
+          title={`Priority: ${priority.label}`}
+          aria-label={`Priority: ${priority.label}`}
         >
-          {PRIORITY_LABELS[task.priority]}
+          <PriorityIcon priority={task.priority} />
+          <span>{priority.label}</span>
         </span>
       </div>
 
-      {task.description ? (
-        <p className="mt-2 line-clamp-2 whitespace-pre-wrap text-xs opacity-80">
-          {task.description}
-        </p>
-      ) : null}
+      <span className="task-card-title" title={task.title}>
+        {task.title}
+      </span>
+
+      {task.description ? <p className="task-card-description">{task.description}</p> : null}
 
       {task.tags.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1">
+        <div className="task-card-tags">
           {task.tags.map((tag) => (
             <TagChip key={tag} tag={tag} />
           ))}
         </div>
       ) : null}
 
-      {progress.total > 0 ? (
-        <div className="mt-2 text-xs" aria-label={`Checklist progress ${progress.completed} of ${progress.total}`}>
-          Checklist {progress.completed}/{progress.total}
+      <div className="task-card-footer">
+        <div className="flex flex-wrap items-center gap-3">
+          {progress.total > 0 ? (
+            <ChecklistProgress completed={progress.completed} total={progress.total} />
+          ) : null}
+          {deadline ? (
+            <span
+              className={`task-card-footer-item task-card-deadline ${
+                deadline.overdue ? 'task-card-deadline-overdue' : ''
+              }`}
+            >
+              <CalendarIcon />
+              <time
+                dateTime={task.dueAt}
+                title={`Deadline: ${deadline.full}${deadline.overdue ? ' (overdue)' : ''}`}
+              >
+                {deadline.label}
+              </time>
+              {deadline.overdue ? (
+                <span className="task-card-overdue-label">overdue</span>
+              ) : null}
+            </span>
+          ) : null}
+          <span className="task-card-footer-item">
+            <ClockIcon />
+            <time dateTime={task.updatedAt} title={task.updatedAt}>
+              {formatTimestamp(task.updatedAt)}
+            </time>
+          </span>
         </div>
-      ) : null}
-
-      <div className="mt-2 flex items-center justify-end gap-1">
-        {onMoveLeft ? (
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={`Move ${task.title} to the previous column`}
-            onClick={() => onMoveLeft(task)}
-          >
-            ←
-          </button>
-        ) : null}
-        {onMoveRight ? (
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={`Move ${task.title} to the next column`}
-            onClick={() => onMoveRight(task)}
-          >
-            →
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="icon-button icon-button-danger"
-          aria-label={`Delete task ${task.title}`}
-          onClick={() => onDelete(task)}
-        >
-          ×
-        </button>
       </div>
+    </>
+  );
+}
+
+export function TaskCard({
+  task,
+  cardLayout,
+  onEdit,
+  onKeyboardMove,
+  dragDisabled,
+}: {
+  task: TaskView;
+  cardLayout: CardLayout;
+  onEdit(task: TaskView): void;
+  onKeyboardMove?(task: TaskView, direction: KeyboardMoveDirection): void;
+  dragDisabled?: boolean;
+}) {
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+    data: { kind: 'task' },
+    disabled: dragDisabled,
+  });
+
+  return (
+    <article
+      ref={setNodeRef}
+      className={`task-card ${cardLayout === 'compact' ? 'task-card-compact' : ''} ${
+        isDragging ? 'task-card-placeholder' : ''
+      }`}
+      style={
+        isDragging
+          ? undefined
+          : { transform: CSS.Translate.toString(transform), transition }
+      }
+      data-task-id={task.id}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open task ${task.title}`}
+      aria-keyshortcuts="Enter Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown"
+      title="Click to open. Drag to move. Alt+Arrow moves between columns or positions."
+      onClick={() => onEdit(task)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          onEdit(task);
+          return;
+        }
+        if (!event.altKey || !onKeyboardMove) {
+          return;
+        }
+        const directions: Record<string, KeyboardMoveDirection | undefined> = {
+          ArrowLeft: 'left',
+          ArrowRight: 'right',
+          ArrowUp: 'up',
+          ArrowDown: 'down',
+        };
+        const direction = directions[event.key];
+        if (direction) {
+          event.preventDefault();
+          onKeyboardMove(task, direction);
+        }
+      }}
+      {...listeners}
+    >
+      <TaskCardContent task={task} cardLayout={cardLayout} />
     </article>
+  );
+}
+
+export function TaskCardOverlay({
+  task,
+  cardLayout,
+}: {
+  task: TaskView;
+  cardLayout: CardLayout;
+}) {
+  return (
+    <div
+      className={`task-card task-card-overlay-content ${
+        cardLayout === 'compact' ? 'task-card-compact' : ''
+      }`}
+      aria-hidden="true"
+    >
+      <TaskCardContent task={task} cardLayout={cardLayout} />
+    </div>
   );
 }

@@ -83,6 +83,22 @@ describe('document codecs', () => {
     }
   });
 
+  it('parses an optional deadline and rejects date-only values', () => {
+    const withDeadline = { ...validTask, dueAt: '2026-11-25T14:30:00.000Z' };
+    const parsed = parseTaskDocument(serializeTaskDocument(withDeadline as never), uri, 'backlog');
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.document.value.dueAt).toBe('2026-11-25T14:30:00.000Z');
+    }
+
+    const dateOnly = { ...validTask, dueAt: '2026-11-25' };
+    const rejected = parseTaskDocument(serializeTaskDocument(dateOnly as never), uri, 'backlog');
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) {
+      expect(rejected.issues.some((issue) => issue.path === 'dueAt')).toBe(true);
+    }
+  });
+
   it('maps schema failures to validation issues with paths', () => {
     const raw = serializeTaskDocument({ ...validTask, priority: 'urgent' } as never);
     const result = parseTaskDocument(raw, uri, 'backlog');

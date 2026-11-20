@@ -71,6 +71,7 @@ export const taskSchema = z
     priority: z.enum(PRIORITIES),
     position: positionSchema,
     checklists: z.array(checklistSchema),
+    dueAt: isoTimestampSchema.optional(),
     createdAt: isoTimestampSchema,
     updatedAt: isoTimestampSchema,
   })

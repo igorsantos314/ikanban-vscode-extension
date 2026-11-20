@@ -27,6 +27,7 @@ export interface Task {
   priority: Priority;
   position: number;
   checklists: Checklist[];
+  dueAt?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -142,6 +142,7 @@ export function parseTaskDocument(
             position: item.position,
           })),
         })),
+        ...(result.data.dueAt ? { dueAt: result.data.dueAt } : {}),
         createdAt: result.data.createdAt,
         updatedAt: result.data.updatedAt,
       },
@@ -205,6 +206,7 @@ function toTaskUpdates(task: Task): Record<string, unknown> {
         position: item.position,
       })),
     })),
+    dueAt: task.dueAt,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };

@@ -9,11 +9,16 @@ import { MutationQueue } from './mutationQueue';
 import type {
   BoardSnapshot,
   ColumnView,
+  TaskCursor,
+  TaskPage,
   TaskView,
 } from '../shared/board';
 import type { ValidationIssue } from '../shared/validationIssue';
 import { deriveColumnId } from '../domain/columnId';
+import { normalizeDueAt } from '../domain/deadline';
+import { DEFAULT_PAGE_SIZE } from './taskPagination';
 import {
+  ConflictError,
   DuplicateEntityError,
   EntityNotFoundError,
   StorageError,
@@ -55,6 +60,7 @@ export interface TaskDraft {
   priority: string;
   tags: readonly string[];
   checklists?: ChecklistDraft[];
+  dueAt?: string | null;
 }
 
 export interface CreateTaskInput extends TaskDraft {
@@ -259,7 +265,8 @@ export class BoardService {
     const config = boardResult.document.value;
     const issues: ValidationIssue[] = [];
     const columnViews: ColumnView[] = [];
-    const taskEntries: Array<{ task: TaskView; uri: string }> = [];
+    const loadedTasks: TaskView[] = [];
+    const indexEntriesById = new Map<string, { id: string; uri: string }[]>();
 
     for (const columnId of config.columnIds) {
       if (!(await this.board.columnExists(columnId))) {
@@ -310,95 +317,90 @@ export class BoardService {
         continue;
       }
 
-      const columnTasks: TaskView[] = [];
-      let files: import('./ports').TaskFileRef[];
+      let ensured;
       try {
-        files = await this.board.listTaskFiles(columnId);
+        ensured = await this.tasks.ensureColumnIndex(columnId);
       } catch (error) {
         issues.push({
           uri: `${this.board.ikanbanUri.toString().replace(/\/$/, '')}/${columnId}/column.yaml`,
           severity: 'error',
-          code: 'board/missing-column-config',
-          message: `Could not list tasks for column ${columnId}: ${messageOf(error)}`,
+          code: 'task/index-error',
+          message: `Could not index column ${columnId}: ${messageOf(error)}`,
         });
         columnViews.push({
           ...columnResult.document.value,
           revision: columnResult.document.revision,
           taskCount: 0,
+          tasksRevision: '',
+          nextCursor: null,
+          hasMore: false,
+          loadedCount: 0,
         });
         continue;
       }
-      for (const file of files) {
-        let parsed: DocumentReadResult<Task> | undefined;
-        try {
-          parsed = await this.tasks.readTask(file);
-        } catch (error) {
-          issues.push({
-            uri: file.uri.toString(),
-            severity: 'error',
-            code: 'task/invalid-file',
-            message: `Could not read task file: ${messageOf(error)}`,
-          });
-          continue;
-        }
-        if (!parsed) {
-          issues.push({
-            uri: file.uri.toString(),
-            severity: 'error',
-            code: 'task/missing-file',
-            message: 'Task file disappeared while loading the board.',
-          });
-          continue;
-        }
-        if (!parsed.ok) {
-          issues.push(...parsed.issues);
-          continue;
-        }
-        const task = parsed.document.value;
-        if (file.fileName !== `${task.id}.yaml`) {
-          issues.push({
-            uri: file.uri.toString(),
-            severity: 'error',
-            code: 'task/identity-mismatch',
-            message: `Task file name ${file.fileName} does not match task ID ${task.id}.`,
-          });
-          continue;
-        }
-        const view: TaskView = { ...task, revision: parsed.document.revision };
-        taskEntries.push({ task: view, uri: file.uri.toString() });
-        columnTasks.push(view);
+      issues.push(...ensured.issues);
+      for (const entry of ensured.index.entries) {
+        const existing = indexEntriesById.get(entry.id) ?? [];
+        existing.push({
+          id: entry.id,
+          uri: `${this.board.ikanbanUri.toString().replace(/\/$/, '')}/${columnId}/${entry.fileName}`,
+        });
+        indexEntriesById.set(entry.id, existing);
       }
 
+      let page;
+      try {
+        page = await this.tasks.readTaskPage(columnId, null, DEFAULT_PAGE_SIZE, ensured.index.tasksRevision);
+      } catch (error) {
+        issues.push({
+          uri: `${this.board.ikanbanUri.toString().replace(/\/$/, '')}/${columnId}/column.yaml`,
+          severity: 'error',
+          code: 'task/page-error',
+          message: `Could not load the first page for column ${columnId}: ${messageOf(error)}`,
+        });
+        page = {
+          tasks: [],
+          issues: [],
+          nextCursor: null,
+          hasMore: false,
+          taskCount: ensured.index.entries.length,
+          tasksRevision: ensured.index.tasksRevision,
+        };
+      }
+      issues.push(...page.issues);
+
+      const columnTasks: TaskView[] = page.tasks.map((entry) => ({
+        ...entry.task,
+        columnId,
+        revision: entry.revision,
+      }));
+      loadedTasks.push(...columnTasks);
       columnViews.push({
         ...columnResult.document.value,
         revision: columnResult.document.revision,
-        taskCount: columnTasks.length,
+        taskCount: page.taskCount,
+        tasksRevision: page.tasksRevision,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        loadedCount: columnTasks.length,
       });
     }
 
-    const taskIds = new Set<string>();
-    const duplicateIds = new Set<string>();
-    for (const entry of taskEntries) {
-      if (taskIds.has(entry.task.id)) {
-        duplicateIds.add(entry.task.id);
-      }
-      taskIds.add(entry.task.id);
-    }
-    for (const entry of taskEntries) {
-      if (duplicateIds.has(entry.task.id)) {
-        issues.push({
-          uri: entry.uri,
-          severity: 'error',
-          code: 'task/duplicate-id',
-          message: `Duplicate task ID across the board: ${entry.task.id}.`,
-          path: 'id',
-        });
+    const duplicateTaskIds = new Set<string>();
+    for (const [taskId, locations] of indexEntriesById) {
+      if (locations.length > 1) {
+        duplicateTaskIds.add(taskId);
+        for (const location of locations) {
+          issues.push({
+            uri: location.uri,
+            severity: 'error',
+            code: 'task/duplicate-id',
+            message: `Duplicate task ID across the board: ${taskId}.`,
+            path: 'id',
+          });
+        }
       }
     }
-
-    const tasks = taskEntries
-      .filter((entry) => !duplicateIds.has(entry.task.id))
-      .map((entry) => entry.task);
 
     let directories: string[] = [];
     try {
@@ -422,17 +424,15 @@ export class BoardService {
       }
     }
 
-    for (const column of columnViews) {
-      column.taskCount = tasks.filter((task) => task.columnId === column.id).length;
-    }
-
-    const sortedTasks = [...tasks].sort((left, right) => {
+    const sortedTasks = loadedTasks
+      .filter((task) => !duplicateTaskIds.has(task.id))
+      .sort((left, right) => {
       if (left.columnId !== right.columnId) {
         return config.columnIds.indexOf(left.columnId) - config.columnIds.indexOf(right.columnId);
       }
-      const sorted = sortByPosition([left, right]);
-      return sorted[0]?.id === left.id ? -1 : 1;
-    });
+        const sorted = sortByPosition([left, right]);
+        return sorted[0]?.id === left.id ? -1 : 1;
+      });
 
     return {
       workspaceName: this.workspaceName,
@@ -447,7 +447,45 @@ export class BoardService {
   }
 
   validateBoard(): Promise<BoardSnapshot> {
-    return this.loadBoard();
+    return this.queue.run(async () => {
+      await this.tasks.invalidateAllIndexes();
+      return this.loadBoard();
+    });
+  }
+
+  async loadTaskPage(input: {
+    columnId: string;
+    cursor: TaskCursor | null;
+    limit?: number;
+    expectedTasksRevision: string;
+  }): Promise<TaskPage> {
+    await this.requireColumn(input.columnId);
+    const page = await this.tasks.readTaskPage(
+      input.columnId,
+      input.cursor,
+      input.limit ?? DEFAULT_PAGE_SIZE,
+      input.expectedTasksRevision,
+    );
+    return {
+      columnId: input.columnId,
+      tasks: page.tasks.map((entry) => ({
+        ...entry.task,
+        columnId: input.columnId,
+        revision: entry.revision,
+      })),
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+      taskCount: page.taskCount,
+      tasksRevision: page.tasksRevision,
+    };
+  }
+
+  async invalidateColumnIndex(columnId: string): Promise<void> {
+    await this.tasks.invalidateColumnIndex(columnId);
+  }
+
+  async invalidateAllIndexes(): Promise<void> {
+    await this.tasks.invalidateAllIndexes();
   }
 
   createColumn(input: CreateColumnInput): Promise<BoardSnapshot> {
@@ -456,9 +494,7 @@ export class BoardService {
       const title = normalizeRequiredText(input.title, 'Column title');
       const color = this.validateColor(input.color);
       if (input.expectedBoardRevision !== revision) {
-        throw new ValidationError(
-          'The board configuration changed outside iKanban. Refresh before saving.',
-        );
+        throw new ConflictError('Board');
       }
       const id = deriveColumnId(title);
       if (config.columnIds.includes(id) || (await this.board.columnExists(id))) {
@@ -500,9 +536,7 @@ export class BoardService {
     return this.queue.run(async () => {
       const { config, revision } = await this.requireBoard();
       if (input.expectedBoardRevision !== revision) {
-        throw new ValidationError(
-          'The board configuration changed outside iKanban. Refresh before saving.',
-        );
+        throw new ConflictError('Board');
       }
       const column = await this.requireColumn(input.id);
       if (config.columnIds.length === 1) {
@@ -537,9 +571,7 @@ export class BoardService {
     return this.queue.run(async () => {
       const { config, revision } = await this.requireBoard();
       if (input.expectedBoardRevision !== revision) {
-        throw new ValidationError(
-          'The board configuration changed outside iKanban. Refresh before saving.',
-        );
+        throw new ConflictError('Board');
       }
       const requested = input.columnIds;
       const unique = new Set(requested);
@@ -560,6 +592,7 @@ export class BoardService {
       const { column } = await this.requireColumn(input.columnId);
       const existing = await this.tasksForColumn(column.id);
       const now = this.clock.now().toISOString();
+      const dueAt = normalizeDueAt(input.dueAt);
       const task: Task = {
         id: this.ids.next(),
         title: normalizeRequiredText(input.title, 'Task title'),
@@ -569,10 +602,12 @@ export class BoardService {
         priority: requirePriority(input.priority),
         position: nextPosition(existing),
         checklists: this.buildChecklists(input.checklists ?? []),
+        ...(dueAt ? { dueAt } : {}),
         createdAt: now,
         updatedAt: now,
       };
       const written = await this.tasks.createTask(task);
+      await this.tasks.invalidateColumnIndex(column.id);
       return { ...task, revision: written.revision };
     });
   }
@@ -582,8 +617,13 @@ export class BoardService {
       const existing = await this.findTaskOrThrow(input.taskId);
       const targetColumn = await this.requireColumn(input.columnId);
       const now = this.clock.now().toISOString();
+      const dueAt =
+        input.dueAt === undefined
+          ? existing.task.dueAt
+          : normalizeDueAt(input.dueAt);
+      const { dueAt: _existingDueAt, ...existingWithoutDueAt } = existing.task;
       const updated: Task = {
-        ...existing.task,
+        ...existingWithoutDueAt,
         title: normalizeRequiredText(input.title, 'Task title'),
         description: input.description ?? '',
         tags: normalizeTags(input.tags),
@@ -592,11 +632,13 @@ export class BoardService {
           input.checklists === undefined
             ? existing.task.checklists
             : this.buildChecklists(input.checklists, existing.task.checklists),
+        ...(dueAt ? { dueAt } : {}),
         updatedAt: now,
       };
 
       if (targetColumn.column.id === existing.task.columnId) {
         const written = await this.tasks.updateTask(updated, input.expectedRevision);
+        await this.tasks.invalidateColumnIndex(existing.task.columnId);
         return { ...updated, revision: written.revision };
       }
 
@@ -612,6 +654,8 @@ export class BoardService {
         targetColumn.column.id,
         input.expectedRevision,
       );
+      await this.tasks.invalidateColumnIndex(existing.task.columnId);
+      await this.tasks.invalidateColumnIndex(targetColumn.column.id);
       return { ...moved, revision: written.revision };
     });
   }
@@ -619,6 +663,7 @@ export class BoardService {
   deleteTask(input: DeleteTaskInput): Promise<void> {
     return this.queue.run(async () => {
       await this.tasks.deleteTask(input.columnId, input.taskId, input.expectedRevision);
+      await this.tasks.invalidateColumnIndex(input.columnId);
     });
   }
 
@@ -626,49 +671,54 @@ export class BoardService {
     return this.queue.run(async () => {
       const source = await this.readTaskOrThrow(input.fromColumnId, input.taskId);
       const targetColumn = await this.requireColumn(input.toColumnId);
-      const targetTasks = (await this.tasksForColumn(targetColumn.column.id)).filter(
-        (task) => task.id !== input.taskId,
+      const ensuredIndex = await this.tasks.ensureColumnIndex(targetColumn.column.id);
+      const targetEntries = ensuredIndex.index.entries.filter(
+        (entry) => entry.id !== input.taskId,
       );
-
-      const planning = planReorder(
-        [
-          ...targetTasks,
-          { ...source.task, position: Number.MAX_SAFE_INTEGER },
-        ],
-        source.task.id,
-        input.targetIndex,
-      );
-
-      const changed: Array<{ previous: TaskView; revision: string }> = [];
-      try {
-        for (const [taskId, position] of Object.entries(planning.positions)) {
-          if (taskId === input.taskId) {
-            continue;
+      let position = this.positionFromEntries(targetEntries, input.targetIndex);
+      if (position === null) {
+        const targetTasks = (await this.tasksForColumn(targetColumn.column.id)).filter(
+          (task) => task.id !== input.taskId,
+        );
+        const planning = planReorder(
+          [
+            ...targetTasks,
+            { ...source.task, position: Number.MAX_SAFE_INTEGER },
+          ],
+          source.task.id,
+          input.targetIndex,
+        );
+        const changed: Array<{ previous: TaskView; revision: string }> = [];
+        try {
+          for (const [taskId, plannedPosition] of Object.entries(planning.positions)) {
+            if (taskId === input.taskId) {
+              continue;
+            }
+            const task = targetTasks.find((candidate) => candidate.id === taskId);
+            if (!task) {
+              continue;
+            }
+            const updated = {
+              ...task,
+              position: plannedPosition,
+              updatedAt: this.clock.now().toISOString(),
+            };
+            const written = await this.tasks.updateTask(updated, task.revision);
+            changed.push({ previous: task, revision: written.revision });
           }
-          const task = targetTasks.find((candidate) => candidate.id === taskId);
-          if (!task) {
-            continue;
+        } catch (error) {
+          for (const entry of changed.reverse()) {
+            const restored = {
+              ...entry.previous,
+              updatedAt: this.clock.now().toISOString(),
+            };
+            await this.tasks.updateTask(restored, entry.revision).catch(() => undefined);
           }
-          const updated = {
-            ...task,
-            position,
-            updatedAt: this.clock.now().toISOString(),
-          };
-          const written = await this.tasks.updateTask(updated, task.revision);
-          changed.push({ previous: task, revision: written.revision });
+          throw error;
         }
-      } catch (error) {
-        for (const entry of changed.reverse()) {
-          const restored = {
-            ...entry.previous,
-            updatedAt: this.clock.now().toISOString(),
-          };
-          await this.tasks.updateTask(restored, entry.revision).catch(() => undefined);
-        }
-        throw error;
+        position = planning.positions[input.taskId] ?? nextPosition(targetTasks);
       }
 
-      const position = planning.positions[input.taskId] ?? nextPosition(targetTasks);
       const moved: Task = {
         ...source.task,
         columnId: targetColumn.column.id,
@@ -679,6 +729,7 @@ export class BoardService {
       if (source.task.columnId === targetColumn.column.id) {
         const written = await this.tasks.updateTask(moved, input.expectedRevision);
         void written;
+        await this.tasks.invalidateColumnIndex(source.task.columnId);
       } else {
         await this.tasks.moveTask(
           moved,
@@ -686,6 +737,8 @@ export class BoardService {
           targetColumn.column.id,
           input.expectedRevision,
         );
+        await this.tasks.invalidateColumnIndex(source.task.columnId);
+        await this.tasks.invalidateColumnIndex(targetColumn.column.id);
       }
       return this.loadBoard();
     });
@@ -694,6 +747,9 @@ export class BoardService {
   createChecklist(input: CreateChecklistInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist: Checklist = {
         id: this.ids.next(),
         title: normalizeRequiredText(input.title, 'Checklist title'),
@@ -710,6 +766,9 @@ export class BoardService {
   updateChecklist(input: UpdateChecklistInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist = task.checklists.find((entry) => entry.id === input.checklistId);
       if (!checklist) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
@@ -730,6 +789,9 @@ export class BoardService {
   deleteChecklist(input: DeleteChecklistInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       if (!task.checklists.some((entry) => entry.id === input.checklistId)) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
       }
@@ -746,6 +808,9 @@ export class BoardService {
   createChecklistItem(input: CreateChecklistItemInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist = task.checklists.find((entry) => entry.id === input.checklistId);
       if (!checklist) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
@@ -773,6 +838,9 @@ export class BoardService {
   updateChecklistItem(input: UpdateChecklistItemInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist = task.checklists.find((entry) => entry.id === input.checklistId);
       if (!checklist) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
@@ -813,6 +881,9 @@ export class BoardService {
   deleteChecklistItem(input: DeleteChecklistItemInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist = task.checklists.find((entry) => entry.id === input.checklistId);
       if (!checklist) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
@@ -840,6 +911,9 @@ export class BoardService {
   toggleChecklistItem(input: ToggleChecklistItemInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist = task.checklists.find((entry) => entry.id === input.checklistId);
       if (!checklist) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
@@ -869,9 +943,30 @@ export class BoardService {
     });
   }
 
+  private positionFromEntries(
+    entries: readonly { id: string; position: number }[],
+    targetIndex: number,
+  ): number | null {
+    if (entries.length === 0) {
+      return 1024;
+    }
+    const index = Math.max(0, Math.min(targetIndex, entries.length));
+    if (index === 0) {
+      return entries[0]!.position > 1024 ? entries[0]!.position - 1024 : null;
+    }
+    if (index >= entries.length) {
+      return entries[entries.length - 1]!.position + 1024;
+    }
+    const previous = entries[index - 1]!;
+    const next = entries[index]!;
+    const gap = next.position - previous.position;
+    return gap > 1 ? previous.position + Math.floor(gap / 2) : null;
+  }
+
   private async persistTask(task: Task, revision: string): Promise<TaskView> {
     const updated = { ...task, updatedAt: this.clock.now().toISOString() };
     const written = await this.tasks.updateTask(updated, revision);
+    await this.tasks.invalidateColumnIndex(updated.columnId);
     return { ...updated, revision: written.revision };
   }
 

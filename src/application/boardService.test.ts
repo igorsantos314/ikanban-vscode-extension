@@ -26,19 +26,24 @@ afterEach(async () => {
   }
 });
 
-async function setup(): Promise<{ workspace: TestWorkspace; service: BoardService }> {
+async function setup(): Promise<{
+  workspace: TestWorkspace;
+  service: BoardService;
+  clock: FixedClock;
+}> {
   const workspace = await createTestWorkspace();
   workspaces.push(workspace);
+  const clock = new FixedClock();
   const service = new BoardService({
     board: workspace.board,
     tasks: workspace.tasks,
-    clock: new FixedClock(),
+    clock,
     ids: new SequenceIdGenerator(),
     workspaceName: 'Test Workspace',
   });
   services.push(service);
   await service.initializeBoard();
-  return { workspace, service };
+  return { workspace, service, clock };
 }
 
 function taskInput(overrides: Partial<CreateTaskInput> = {}): CreateTaskInput {
@@ -293,6 +298,54 @@ describe('task use cases', () => {
     expect(loaded.checklists[0]?.items).toHaveLength(2);
   });
 
+  it('creates, updates and clears an optional deadline', async () => {
+    const { service, workspace } = await setup();
+    const task = await service.createTask(
+      taskInput({ title: 'Deadline', dueAt: '2026-11-25T14:30:00.000Z' }),
+    );
+    expect(task.dueAt).toBe('2026-11-25T14:30:00.000Z');
+    const taskUri = workspace.fs.joinPath(
+      workspace.ikanbanUri,
+      'backlog',
+      `${task.id}.yaml`,
+    );
+    const raw = await workspace.fs.readFile(taskUri);
+    expect(new TextDecoder().decode(raw)).toContain('dueAt: 2026-11-25T14:30:00.000Z');
+
+    const updated = await service.updateTask({
+      taskId: task.id,
+      columnId: 'backlog',
+      expectedRevision: task.revision,
+      title: task.title,
+      priority: task.priority,
+      tags: [],
+      dueAt: '2026-12-01T09:00:00.000Z',
+    });
+    expect(updated.dueAt).toBe('2026-12-01T09:00:00.000Z');
+
+    const cleared = await service.updateTask({
+      taskId: task.id,
+      columnId: 'backlog',
+      expectedRevision: updated.revision,
+      title: task.title,
+      priority: task.priority,
+      tags: [],
+      dueAt: null,
+    });
+    expect(cleared.dueAt).toBeUndefined();
+    const clearedRaw = new TextDecoder().decode(
+      await workspace.fs.readFile(taskUri),
+    );
+    expect(clearedRaw).not.toContain('dueAt:');
+  });
+
+  it('rejects an invalid deadline', async () => {
+    const { service } = await setup();
+    await expect(
+      service.createTask(taskInput({ title: 'Invalid', dueAt: '2026-11-25' })),
+    ).rejects.toThrow(/ISO 8601/);
+  });
+
   it('updates and deletes a task', async () => {
     const { service } = await setup();
     const task = await service.createTask(taskInput({ title: 'Old' }));
@@ -315,6 +368,86 @@ describe('task use cases', () => {
     });
     const snapshot = await service.loadBoard();
     expect(snapshot.tasks).toHaveLength(0);
+  });
+
+  it('maintains createdAt and updatedAt across every mutation path', async () => {
+    const { service, clock } = await setup();
+    const task = await service.createTask(taskInput({ title: 'Timestamped' }));
+    expect(task.createdAt).toBe('2026-11-18T10:00:00.000Z');
+    expect(task.updatedAt).toBe(task.createdAt);
+
+    clock.advance(1000);
+    const updated = await service.updateTask({
+      taskId: task.id,
+      columnId: 'backlog',
+      expectedRevision: task.revision,
+      title: 'Timestamped v2',
+      description: '',
+      priority: 'medium',
+      tags: [],
+    });
+    expect(updated.createdAt).toBe(task.createdAt);
+    expect(updated.updatedAt).toBe('2026-11-18T10:00:01.000Z');
+
+    clock.advance(1000);
+    let snapshot = await service.moveTask({
+      taskId: task.id,
+      fromColumnId: 'backlog',
+      toColumnId: 'in-progress',
+      targetIndex: 0,
+      expectedRevision: updated.revision,
+    });
+    const moved = snapshot.tasks.find((entry) => entry.id === task.id)!;
+    expect(moved.createdAt).toBe(task.createdAt);
+    expect(moved.updatedAt).toBe('2026-11-18T10:00:02.000Z');
+
+    clock.advance(1000);
+    snapshot = await service.moveTask({
+      taskId: task.id,
+      fromColumnId: 'in-progress',
+      toColumnId: 'in-progress',
+      targetIndex: 0,
+      expectedRevision: moved.revision,
+    });
+    const reordered = snapshot.tasks.find((entry) => entry.id === task.id)!;
+    expect(reordered.createdAt).toBe(task.createdAt);
+    expect(reordered.updatedAt).toBe('2026-11-18T10:00:03.000Z');
+
+    clock.advance(1000);
+    const checklist = await service.createChecklist({
+      taskId: task.id,
+      columnId: 'in-progress',
+      expectedRevision: reordered.revision,
+      title: 'Checks',
+    });
+    expect(checklist.createdAt).toBe(task.createdAt);
+    expect(checklist.updatedAt).toBe('2026-11-18T10:00:04.000Z');
+    const checklistId = checklist.checklists[0]?.id;
+    expect(checklistId).toBeDefined();
+
+    clock.advance(1000);
+    const item = await service.createChecklistItem({
+      taskId: task.id,
+      columnId: 'in-progress',
+      expectedRevision: checklist.revision,
+      checklistId: checklistId!,
+      text: 'One',
+    });
+    expect(item.createdAt).toBe(task.createdAt);
+    expect(item.updatedAt).toBe('2026-11-18T10:00:05.000Z');
+    const itemId = item.checklists[0]?.items[0]?.id;
+    expect(itemId).toBeDefined();
+
+    clock.advance(1000);
+    const toggled = await service.toggleChecklistItem({
+      taskId: task.id,
+      columnId: 'in-progress',
+      expectedRevision: item.revision,
+      checklistId: checklistId!,
+      itemId: itemId!,
+    });
+    expect(toggled.createdAt).toBe(task.createdAt);
+    expect(toggled.updatedAt).toBe('2026-11-18T10:00:06.000Z');
   });
 
   it('rejects invalid task data and unknown columns', async () => {
@@ -371,6 +504,7 @@ describe('task use cases', () => {
       taskInput({
         title: 'Move me',
         tags: ['issue'],
+        dueAt: '2026-11-25T14:30:00.000Z',
         checklists: [
           {
             title: 'Checklist',
@@ -389,6 +523,7 @@ describe('task use cases', () => {
     const moved = snapshot.tasks.find((entry) => entry.id === task.id)!;
     expect(moved.columnId).toBe('in-progress');
     expect(moved.tags).toEqual(['issue']);
+    expect(moved.dueAt).toBe('2026-11-25T14:30:00.000Z');
     expect(moved.checklists[0]?.items[0]?.completed).toBe(true);
     expect(column(snapshot, 'backlog')?.taskCount).toBe(0);
     expect(column(snapshot, 'in-progress')?.taskCount).toBe(1);
@@ -596,5 +731,305 @@ describe('MutationQueue', () => {
     expect(snapshot.tasks).toHaveLength(8);
     const positions = snapshot.tasks.map((task) => task.position);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+});
+
+describe('deadline after move', () => {
+  it('updates a task immediately after a move using the reloaded revision', async () => {
+    const { service } = await setup();
+    const task = await service.createTask(
+      taskInput({ title: 'Moved deadline', dueAt: '2026-11-25T14:30:00.000Z' }),
+    );
+    let snapshot = await service.moveTask({
+      taskId: task.id,
+      fromColumnId: 'backlog',
+      toColumnId: 'done',
+      targetIndex: 0,
+      expectedRevision: task.revision,
+    });
+    snapshot = await service.loadBoard();
+    const reloaded = snapshot.tasks.find((entry) => entry.id === task.id)!;
+    const cleared = await service.updateTask({
+      taskId: reloaded.id,
+      columnId: 'done',
+      expectedRevision: reloaded.revision,
+      title: reloaded.title,
+      priority: reloaded.priority,
+      tags: reloaded.tags,
+      dueAt: null,
+    });
+    expect(cleared.dueAt).toBeUndefined();
+  });
+});
+
+describe('concurrency safety', () => {
+  it('lets only one of two simultaneous task updates win', async () => {
+    const { service } = await setup();
+    const task = await service.createTask(taskInput({ title: 'Original' }));
+    const update = (title: string) =>
+      service.updateTask({
+        taskId: task.id,
+        columnId: 'backlog',
+        expectedRevision: task.revision,
+        title,
+        priority: 'medium',
+        tags: [],
+      });
+
+    const results = await Promise.allSettled([update('Winner A'), update('Winner B')]);
+    const fulfilled = results.filter((entry) => entry.status === 'fulfilled');
+    const rejected = results.filter((entry) => entry.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      code: 'ConflictError',
+    });
+
+    const snapshot = await service.loadBoard();
+    const persisted = snapshot.tasks.find((entry) => entry.id === task.id)!;
+    expect(['Winner A', 'Winner B']).toContain(persisted.title);
+  });
+
+  it('lets only one of two simultaneous checklist changes win', async () => {
+    const { service } = await setup();
+    const created = await service.createTask(
+      taskInput({
+        title: 'Checklist race',
+        checklists: [{ title: 'Steps', items: [{ text: 'One' }] }],
+      }),
+    );
+    const checklistId = created.checklists[0]!.id;
+    const itemId = created.checklists[0]!.items[0]!.id;
+
+    const results = await Promise.allSettled([
+      service.updateChecklist({
+        taskId: created.id,
+        columnId: 'backlog',
+        expectedRevision: created.revision,
+        checklistId,
+        title: 'Renamed',
+      }),
+      service.toggleChecklistItem({
+        taskId: created.id,
+        columnId: 'backlog',
+        expectedRevision: created.revision,
+        checklistId,
+        itemId,
+      }),
+    ]);
+    expect(results.filter((entry) => entry.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((entry) => entry.status === 'rejected')).toHaveLength(1);
+
+    const snapshot = await service.loadBoard();
+    const persisted = snapshot.tasks.find((entry) => entry.id === created.id)!;
+    expect(persisted.checklists).toHaveLength(1);
+    expect(persisted.checklists[0]!.items).toHaveLength(1);
+  });
+
+  it('rejects a board mutation after an external board.yaml change', async () => {
+    const { service, workspace } = await setup();
+    const before = await service.loadBoard();
+    const oldRevision = before.board!.revision;
+    const external = [
+      'version: 1',
+      'name: External board',
+      'columns:',
+      '  - backlog',
+      '  - in-progress',
+      '  - done',
+      '',
+    ].join('\n');
+    await writeBoard(workspace, external);
+
+    await expect(
+      service.reorderColumns({
+        columnIds: ['done', 'in-progress', 'backlog'],
+        expectedBoardRevision: oldRevision,
+      }),
+    ).rejects.toMatchObject({ code: 'ConflictError' });
+
+    const persisted = new TextDecoder().decode(
+      await workspace.fs.readFile(workspace.board.boardUri),
+    );
+    expect(persisted).toContain('name: External board');
+  });
+
+  it('lets only one of two simultaneous board revisions win', async () => {
+    const { service } = await setup();
+    const snapshot = await service.loadBoard();
+    const revision = snapshot.board!.revision;
+    const results = await Promise.allSettled([
+      service.reorderColumns({
+        columnIds: ['done', 'in-progress', 'backlog'],
+        expectedBoardRevision: revision,
+      }),
+      service.reorderColumns({
+        columnIds: ['in-progress', 'backlog', 'done'],
+        expectedBoardRevision: revision,
+      }),
+    ]);
+    expect(results.filter((entry) => entry.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((entry) => entry.status === 'rejected')).toHaveLength(1);
+
+    const after = await service.loadBoard();
+    expect(after.board!.columnIds).toHaveLength(3);
+  });
+});
+
+describe('paginated board loading', () => {
+  it('loads only the first page per column and pages with a stable cursor', async () => {
+    const { service, workspace } = await setup();
+    for (let index = 0; index < 25; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${String(index).padStart(2, '0')}` }));
+    }
+
+    const first = await service.loadBoard();
+    const backlog = column(first, 'backlog')!;
+    expect(backlog.taskCount).toBe(25);
+    expect(backlog.loadedCount).toBe(20);
+    expect(backlog.hasMore).toBe(true);
+    expect(first.tasks.filter((task) => task.columnId === 'backlog')).toHaveLength(20);
+
+    const page = await service.loadTaskPage({
+      columnId: 'backlog',
+      cursor: backlog.nextCursor ?? null,
+      limit: 20,
+      expectedTasksRevision: backlog.tasksRevision!,
+    });
+    expect(page.tasks).toHaveLength(5);
+    expect(page.hasMore).toBe(false);
+    expect(new Set([...first.tasks, ...page.tasks].map((task) => task.id)).size).toBe(25);
+
+    const indexUri = workspace.fs.joinPath(
+      workspace.ikanbanUri,
+      '.index',
+      'backlog.json',
+    );
+    expect(await workspace.fs.exists(indexUri)).toBe(true);
+  });
+
+  it('rejects a stale page cursor revision', async () => {
+    const { service } = await setup();
+    for (let index = 0; index < 22; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${index}` }));
+    }
+    const first = await service.loadBoard();
+    const backlog = column(first, 'backlog')!;
+    await service.createTask(taskInput({ title: 'New task' }));
+
+    await expect(
+      service.loadTaskPage({
+        columnId: 'backlog',
+        cursor: backlog.nextCursor ?? null,
+        expectedTasksRevision: backlog.tasksRevision!,
+      }),
+    ).rejects.toMatchObject({ code: 'PaginationConflict' });
+  });
+
+  it('rebuilds a missing or corrupt index', async () => {
+    const { service, workspace } = await setup();
+    for (let index = 0; index < 21; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${index}` }));
+    }
+    await service.loadBoard();
+    const indexUri = workspace.fs.joinPath(workspace.ikanbanUri, '.index', 'backlog.json');
+    await workspace.fs.delete(indexUri);
+    const rebuilt = await service.loadBoard();
+    expect(column(rebuilt, 'backlog')?.taskCount).toBe(21);
+
+    await workspace.fs.writeFile(indexUri, new TextEncoder().encode('{not json'));
+    const repaired = await service.loadBoard();
+    expect(column(repaired, 'backlog')?.taskCount).toBe(21);
+  });
+
+  it('resets the revision when a task file changes externally', async () => {
+    const { service, workspace } = await setup();
+    for (let index = 0; index < 21; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${index}` }));
+    }
+    const first = await service.loadBoard();
+    const revision = column(first, 'backlog')!.tasksRevision;
+
+    const task = first.tasks.find((entry) => entry.columnId === 'backlog')!;
+    const uri = workspace.fs.joinPath(
+      workspace.ikanbanUri,
+      'backlog',
+      `${task.id}.yaml`,
+    );
+    const raw = new TextDecoder().decode(await workspace.fs.readFile(uri));
+    await workspace.fs.writeFile(
+      uri,
+      new TextEncoder().encode(raw.replace(task.title, `${task.title} edited`)),
+    );
+
+    const after = await service.loadBoard();
+    expect(column(after, 'backlog')!.tasksRevision).not.toBe(revision);
+  });
+
+  it('validates the whole board explicitly after a paginated load', async () => {
+    const { service, workspace } = await setup();
+    for (let index = 0; index < 22; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${index}` }));
+    }
+    await service.loadBoard();
+    const later = (await service.loadTaskPage({
+      columnId: 'backlog',
+      cursor: column(await service.loadBoard(), 'backlog')!.nextCursor ?? null,
+      limit: 20,
+      expectedTasksRevision: column(await service.loadBoard(), 'backlog')!.tasksRevision!,
+    })).tasks[0]!;
+    const uri = workspace.fs.joinPath(workspace.ikanbanUri, 'backlog', `${later.id}.yaml`);
+    await workspace.fs.writeFile(uri, new TextEncoder().encode('title: [broken'));
+
+    const loaded = await service.loadBoard();
+    expect(loaded.tasks.length).toBeGreaterThan(0);
+    const validated = await service.validateBoard();
+    expect(validated.issues.some((issue) => issue.uri === uri.toString())).toBe(true);
+  });
+});
+
+describe('page I/O scope', () => {
+  it('does not read unloaded task files when the index is valid', async () => {
+    const workspace = await createTestWorkspace();
+    workspaces.push(workspace);
+    let reads = 0;
+    const fs = new Proxy(workspace.fs, {
+      get(target, property) {
+        if (property === 'readFile') {
+          return async (uri: Parameters<typeof target.readFile>[0]) => {
+            reads += 1;
+            return target.readFile(uri);
+          };
+        }
+        const value = Reflect.get(target, property) as unknown;
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as typeof workspace.fs;
+    const store = new YamlFileStore(fs);
+    const board = new YamlBoardRepository(fs, store, workspace.ikanbanUri);
+    const tasks = new YamlTaskRepository(fs, store, board);
+    const service = new BoardService({
+      board,
+      tasks,
+      clock: new FixedClock(),
+      ids: new SequenceIdGenerator(),
+      workspaceName: 'Test Workspace',
+    });
+    services.push(service);
+    await service.initializeBoard();
+    for (let index = 0; index < 25; index += 1) {
+      await service.createTask(taskInput({ title: `Scoped ${index}` }));
+    }
+
+    const snapshot = await service.loadBoard();
+    const backlog = column(snapshot, 'backlog')!;
+    reads = 0;
+    const page = await service.loadTaskPage({
+      columnId: 'backlog',
+      cursor: backlog.nextCursor ?? null,
+      expectedTasksRevision: backlog.tasksRevision!,
+    });
+    expect(page.tasks).toHaveLength(5);
+    expect(reads).toBeLessThan(25);
   });
 });

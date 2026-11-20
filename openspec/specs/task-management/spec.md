@@ -8,12 +8,22 @@ Defines the task lifecycle on a local Kanban board: independent YAML task files,
 
 ### Requirement: Task creation
 
-The extension SHALL create a task only when the request contains a non-empty trimmed title and an existing target column. A task SHALL have a generated stable UUID, the containing column, a priority of `low`, `medium` or `high`, an optional description, a tags array, a non-negative integer position, `createdAt` and `updatedAt` timestamps, and zero or more embedded checklists. The extension SHALL write the task to `<task-id>.yaml` inside the target column directory, SHALL NOT create a task status field, and SHALL NOT create a file when validation or persistence fails. A newly created task SHALL be appended after the existing tasks in its column.
+The extension SHALL create a task only when the request contains a non-empty trimmed title and an existing target column. A task SHALL have a generated stable UUID, the containing column, a priority of `low`, `medium` or `high`, an optional description, a tags array, a non-negative integer position, `createdAt` and `updatedAt` timestamps, zero or more embedded checklists and an optional deadline. The extension SHALL write the task to `<task-id>.yaml` inside the target column directory, SHALL NOT create a task status field, and SHALL NOT create a file when validation or persistence fails. A newly created task SHALL be appended after the existing tasks in its column.
 
 #### Scenario: Create a valid task
 
 - **WHEN** the user creates a task titled `Implement authentication` in `backlog` with priority `high` and tags `feat`, `spec`
 - **THEN** a new `<uuid>.yaml` exists in `.ikanban/backlog` with the title, priority, tags, timestamps and an appended position
+
+#### Scenario: Create a task with a deadline
+
+- **WHEN** the user creates a task and fills both the `DD/MM/AAAA` date and `HH:MM` time fields
+- **THEN** the YAML contains one ISO 8601 UTC `dueAt` timestamp equivalent to the entered local date and time
+
+#### Scenario: Create a task without a deadline
+
+- **WHEN** the user creates a task and leaves the deadline empty
+- **THEN** the task is valid and no `dueAt` field is written
 
 #### Scenario: Title is required
 
@@ -56,7 +66,7 @@ Each task SHALL be identified by a stable UUID that does not change across edits
 
 ### Requirement: Task update
 
-The extension SHALL allow a task's title, description, priority, tags and embedded checklists to be updated. Updates SHALL verify the task still exists and that its current revision matches the revision the user loaded, SHALL validate the resulting document, and SHALL update `updatedAt`. Updates SHALL preserve the task ID, `createdAt`, column membership and position unless the request explicitly moves or reorders the task. A failed update SHALL leave the task file unchanged and SHALL NOT modify unrelated tasks.
+The extension SHALL allow a task's title, description, priority, tags, embedded checklists and deadline to be updated. Updates SHALL verify the task still exists and that its current revision matches the revision the user loaded, SHALL validate the resulting document, and SHALL update `updatedAt`. Updates SHALL preserve the task ID, `createdAt`, column membership and position unless the request explicitly moves, reorders or reschedules the task. Clearing the deadline SHALL remove it rather than substitute a default. A failed update SHALL leave the task file unchanged and SHALL NOT modify unrelated tasks.
 
 #### Scenario: Update title and description
 
@@ -72,6 +82,21 @@ The extension SHALL allow a task's title, description, priority, tags and embedd
 
 - **WHEN** the user selects `chore` and deselects `feat`
 - **THEN** the persisted tags contain `chore` and do not contain `feat`
+
+#### Scenario: Change the deadline
+
+- **WHEN** the user changes the local date or time of an existing deadline and saves
+- **THEN** the persisted `dueAt` is replaced with the new ISO 8601 UTC timestamp
+
+#### Scenario: Clear the deadline
+
+- **WHEN** the user clears an existing deadline and saves
+- **THEN** the persisted task has no `dueAt` field and all other fields remain unchanged
+
+#### Scenario: Reject a partial deadline
+
+- **WHEN** the user supplies only a date or only a time for the deadline and saves
+- **THEN** the operation fails validation and the original task file remains unchanged
 
 #### Scenario: Update nonexistent task
 
@@ -104,7 +129,7 @@ The extension SHALL allow a task to be deleted after user confirmation. Deleting
 
 ### Requirement: Task movement between columns
 
-The extension SHALL move a task between columns by moving its YAML file from the source column directory to the target column directory. Movement SHALL preserve the task ID, title, description, tags, priority, checklists, checklist item completion states and `createdAt`. Movement SHALL recalculate the task position for the target column and SHALL update `updatedAt`. The source and target columns SHALL be existing, distinct columns. The operation SHALL NOT overwrite an existing task file. If the move cannot be completed, the task SHALL remain in exactly one column.
+The extension SHALL move a task between columns by moving its YAML file from the source column directory to the target column directory. Movement SHALL preserve the task ID, title, description, tags, priority, checklists, checklist item completion states, deadline and `createdAt`. Movement SHALL recalculate the task position for the target column and SHALL update `updatedAt`. The source and target columns SHALL be existing, distinct columns. The operation SHALL NOT overwrite an existing task file. If the move cannot be completed, the task SHALL remain in exactly one column.
 
 #### Scenario: Move a task
 
@@ -115,6 +140,16 @@ The extension SHALL move a task between columns by moving its YAML file from the
 
 - **WHEN** a task with completed and incomplete checklist items is moved
 - **THEN** every checklist, item text and completion state is preserved
+
+#### Scenario: Movement preserves the deadline
+
+- **WHEN** a task with a deadline is moved to another column
+- **THEN** its `dueAt` value is byte-for-byte equivalent after the move
+
+#### Scenario: Movement during reorder preserves the deadline
+
+- **WHEN** a task with a deadline is reordered within its column
+- **THEN** its `dueAt` value remains unchanged
 
 #### Scenario: Movement reloads correctly
 
@@ -211,3 +246,37 @@ A task description SHALL be optional and MAY be empty or multiline. Task titles,
 
 - **WHEN** a description contains `<script>alert(1)</script>`
 - **THEN** the text is stored unchanged and displayed without executing script
+
+### Requirement: Task deadline
+
+A task SHALL support one optional deadline stored as a `dueAt` ISO 8601 UTC timestamp. A deadline SHALL consist of both a calendar date and a time of day; a date without a time or a time without a date SHALL NOT be persisted. The interface SHALL edit the deadline in the user's local timezone through masked fields and SHALL convert it to UTC for storage, so the same instant is preserved across timezones. The deadline SHALL be optional and SHALL be removed only by an explicit clear action. Deadline status SHALL be derived from the current time and SHALL NOT be stored as a separate field.
+
+#### Scenario: Deadline stores an instant
+
+- **WHEN** a workspace task is created with a local deadline
+- **THEN** the persisted `dueAt` is an ISO 8601 UTC timestamp representing that same instant
+
+#### Scenario: Deadline converts back to local time
+
+- **WHEN** the task is reloaded in the same timezone
+- **THEN** the dialog shows the original local date and time
+
+#### Scenario: Deadline is optional
+
+- **WHEN** no deadline is set
+- **THEN** the task is valid and deadline-related UI is omitted from its card
+
+#### Scenario: Partial deadline is never persisted
+
+- **WHEN** a request contains a date without a time or a time without a date
+- **THEN** the operation is rejected and no task file is written or modified
+
+#### Scenario: Overdue is derived
+
+- **WHEN** the current time passes a task's deadline
+- **THEN** the interface marks the task as overdue without rewriting the task file
+
+#### Scenario: Clearing removes the field
+
+- **WHEN** the user clears a deadline
+- **THEN** the `dueAt` key is removed from the task document and no null placeholder is persisted

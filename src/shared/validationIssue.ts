@@ -22,6 +22,8 @@ export type ValidationIssueCode =
   | 'task/duplicate-id'
   | 'task/identity-mismatch'
   | 'task/invalid-file'
+  | 'task/index-error'
+  | 'task/page-error'
   | 'task/missing-file';
 
 export interface ValidationIssue {

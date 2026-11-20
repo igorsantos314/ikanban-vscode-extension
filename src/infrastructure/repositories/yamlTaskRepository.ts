@@ -1,14 +1,26 @@
+import { randomUUID } from 'node:crypto';
 import type {
   BoardRepository,
+  ColumnIndexResult,
   DocumentReadResult,
   TaskFileRef,
+  TaskPageResult,
   TaskRepository,
   WorkspaceFileSystem,
 } from '../../application/ports';
-import { ConflictError, EntityNotFoundError, StorageError } from '../../domain/errors';
+import type { ColumnTaskIndex, TaskIndexEntry } from '../../application/taskPagination';
+import {
+  clampPageSize,
+  selectPage,
+  sortIndexEntries,
+  type IndexedFileMetadata,
+} from '../../application/taskPagination';
+import { ConflictError, EntityNotFoundError, PaginationConflictError, StorageError } from '../../domain/errors';
 import type { Task } from '../../domain/types';
+import type { TaskCursor } from '../../shared/board';
+import type { ValidationIssue } from '../../shared/validationIssue';
 import { YamlFileStore } from '../fs/yamlFileStore';
-import { parseTaskDocument, serializeTaskDocument } from '../yaml/codecs';
+import { parseTaskDocument, revisionOf, serializeTaskDocument } from '../yaml/codecs';
 import { assertSafeColumnId, taskFileName } from './layout';
 
 export class YamlTaskRepository implements TaskRepository {
@@ -108,6 +120,310 @@ export class YamlTaskRepository implements TaskRepository {
     }
 
     return result;
+  }
+
+  async invalidateColumnIndex(columnId: string): Promise<void> {
+    const uri = this.indexUri(columnId);
+    try {
+      if (await this.fs.exists(uri)) {
+        await this.fs.delete(uri);
+      }
+    } catch {
+      // A failed invalidation only forces a rebuild later.
+    }
+  }
+
+  async invalidateAllIndexes(): Promise<void> {
+    const directory = this.indexDirectory();
+    try {
+      if (!(await this.fs.exists(directory))) {
+        return;
+      }
+      for (const entry of await this.fs.readDirectory(directory)) {
+        if (entry.type === 'file' && entry.name.endsWith('.json')) {
+          await this.fs.delete(this.fs.joinPath(directory, entry.name)).catch(() => undefined);
+        }
+      }
+    } catch {
+      // Indexes are derived; a failed cleanup is safe.
+    }
+  }
+
+  async ensureColumnIndex(columnId: string): Promise<ColumnIndexResult> {
+    const safeColumn = assertSafeColumnId(columnId);
+    const files = await this.listTaskFiles(safeColumn);
+    const existing = await this.readIndex(safeColumn);
+    if (existing && (await this.indexMatchesDirectory(existing, files))) {
+      return { index: existing, issues: [], rebuilt: false };
+    }
+    return this.rebuildIndex(safeColumn, files);
+  }
+
+  async readTaskPage(
+    columnId: string,
+    cursor: TaskCursor | null,
+    limit: number,
+    expectedRevision: string,
+  ): Promise<TaskPageResult> {
+    const safeColumn = assertSafeColumnId(columnId);
+    let ensured = await this.ensureColumnIndex(safeColumn);
+    if (ensured.index.tasksRevision !== expectedRevision) {
+      throw new PaginationConflictError();
+    }
+    this.assertCursorExists(ensured.index, cursor);
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const page = selectPage(ensured.index.entries, cursor, clampPageSize(limit));
+      const tasks: TaskPageResult['tasks'] = [];
+      const issues: ValidationIssue[] = [];
+      let invalid = false;
+
+      for (const entry of page.entries) {
+        const ref = this.ref(safeColumn, entry.id);
+        let parsed: DocumentReadResult<Task> | undefined;
+        try {
+          parsed = await this.readTask(ref);
+        } catch (error) {
+          invalid = true;
+          issues.push({
+            uri: ref.uri.toString(),
+            severity: 'error',
+            code: 'task/invalid-file',
+            message: `Could not read task file: ${error instanceof Error ? error.message : String(error)}`,
+          });
+          continue;
+        }
+        if (!parsed) {
+          invalid = true;
+          issues.push({
+            uri: ref.uri.toString(),
+            severity: 'error',
+            code: 'task/missing-file',
+            message: 'Task file disappeared while loading a page.',
+          });
+          continue;
+        }
+        if (!parsed.ok) {
+          invalid = true;
+          issues.push(...parsed.issues);
+          continue;
+        }
+        if (ref.fileName !== `${parsed.document.value.id}.yaml`) {
+          invalid = true;
+          issues.push({
+            uri: ref.uri.toString(),
+            severity: 'error',
+            code: 'task/identity-mismatch',
+            message: `Task file name ${ref.fileName} does not match task ID ${parsed.document.value.id}.`,
+          });
+          continue;
+        }
+        tasks.push({
+          task: parsed.document.value,
+          revision: parsed.document.revision,
+          uri: ref.uri.toString(),
+        });
+      }
+
+      if (!invalid || attempt === 1) {
+        return {
+          tasks,
+          issues,
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          taskCount: ensured.index.entries.length,
+          tasksRevision: ensured.index.tasksRevision,
+        };
+      }
+
+      const files = await this.listTaskFiles(safeColumn);
+      ensured = await this.rebuildIndex(safeColumn, files);
+      this.assertCursorExists(ensured.index, cursor);
+    }
+
+    throw new PaginationConflictError();
+  }
+
+  private indexDirectory() {
+    return this.fs.joinPath(this.board.ikanbanUri, '.index');
+  }
+
+  private indexUri(columnId: string) {
+    return this.fs.joinPath(this.indexDirectory(), `${assertSafeColumnId(columnId)}.json`);
+  }
+
+  private async readIndex(columnId: string): Promise<ColumnTaskIndex | undefined> {
+    const uri = this.indexUri(columnId);
+    try {
+      if (!(await this.fs.exists(uri))) {
+        return undefined;
+      }
+      const raw = new TextDecoder().decode(await this.fs.readFile(uri));
+      const parsed = JSON.parse(raw) as Partial<ColumnTaskIndex>;
+      if (
+        parsed.version !== 1 ||
+        parsed.columnId !== columnId ||
+        typeof parsed.tasksRevision !== 'string' ||
+        !Array.isArray(parsed.entries) ||
+        !Array.isArray(parsed.sourceFiles)
+      ) {
+        return undefined;
+      }
+      return parsed as ColumnTaskIndex;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async indexMatchesDirectory(
+    index: ColumnTaskIndex,
+    files: TaskFileRef[],
+  ): Promise<boolean> {
+    if (index.sourceFiles.length !== files.length) {
+      return false;
+    }
+    const byName = new Map(index.sourceFiles.map((entry) => [entry.fileName, entry]));
+    for (const file of files) {
+      const indexed = byName.get(file.fileName);
+      if (!indexed) {
+        return false;
+      }
+      try {
+        const stat = await this.fs.stat(file.uri);
+        if (stat.size !== indexed.size || stat.mtime !== indexed.mtime) {
+          return false;
+        }
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private async rebuildIndex(
+    columnId: string,
+    files: TaskFileRef[],
+  ): Promise<ColumnIndexResult> {
+    const issues: ValidationIssue[] = [];
+    const sourceFiles: IndexedFileMetadata[] = [];
+    const entries: TaskIndexEntry[] = [];
+
+    for (const file of files) {
+      let size = 0;
+      let mtime = 0;
+      try {
+        const stat = await this.fs.stat(file.uri);
+        size = stat.size;
+        mtime = stat.mtime;
+      } catch (error) {
+        issues.push({
+          uri: file.uri.toString(),
+          severity: 'error',
+          code: 'task/missing-file',
+          message: `Could not stat task file: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        continue;
+      }
+      sourceFiles.push({ fileName: file.fileName, size, mtime });
+
+      let parsed: DocumentReadResult<Task> | undefined;
+      try {
+        parsed = await this.readTask(file);
+      } catch (error) {
+        issues.push({
+          uri: file.uri.toString(),
+          severity: 'error',
+          code: 'task/invalid-file',
+          message: `Could not read task file: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        continue;
+      }
+      if (!parsed) {
+        issues.push({
+          uri: file.uri.toString(),
+          severity: 'error',
+          code: 'task/missing-file',
+          message: 'Task file disappeared while indexing the column.',
+        });
+        continue;
+      }
+      if (!parsed.ok) {
+        issues.push(...parsed.issues);
+        continue;
+      }
+      const task = parsed.document.value;
+      if (file.fileName !== `${task.id}.yaml`) {
+        issues.push({
+          uri: file.uri.toString(),
+          severity: 'error',
+          code: 'task/identity-mismatch',
+          message: `Task file name ${file.fileName} does not match task ID ${task.id}.`,
+        });
+        continue;
+      }
+      entries.push({
+        id: task.id,
+        position: task.position,
+        fileName: file.fileName,
+        size,
+        mtime,
+      });
+    }
+
+    const sortedEntries = sortIndexEntries(entries);
+    const sortedFiles = [...sourceFiles].sort((left, right) =>
+      left.fileName.localeCompare(right.fileName),
+    );
+    const index: ColumnTaskIndex = {
+      version: 1,
+      columnId,
+      tasksRevision: revisionOf(JSON.stringify({ sourceFiles: sortedFiles, entries: sortedEntries })),
+      sourceFiles: sortedFiles,
+      entries: sortedEntries,
+    };
+    await this.writeIndex(index);
+    return { index, issues, rebuilt: true };
+  }
+
+  private async writeIndex(index: ColumnTaskIndex): Promise<void> {
+    if (!(await this.board.boardExists())) {
+      return;
+    }
+    const directory = this.indexDirectory();
+    if (!(await this.fs.exists(directory))) {
+      await this.fs.createDirectory(directory);
+    }
+    const uri = this.indexUri(index.columnId);
+    const temp = this.fs.joinPath(
+      directory,
+      `.${index.columnId}.${randomUUID()}.tmp`,
+    );
+    const bytes = new TextEncoder().encode(JSON.stringify(index, null, 2));
+    try {
+      await this.fs.writeFile(temp, bytes);
+      try {
+        await this.fs.rename(temp, uri, { overwrite: true });
+      } catch {
+        await this.fs.delete(temp).catch(() => undefined);
+        await this.fs.writeFile(uri, bytes);
+      }
+    } catch (error) {
+      await this.fs.delete(temp).catch(() => undefined);
+      throw new StorageError('Could not write the task index.', String(error));
+    }
+  }
+
+  private assertCursorExists(index: ColumnTaskIndex, cursor: TaskCursor | null): void {
+    if (!cursor) {
+      return;
+    }
+    if (
+      !index.entries.some(
+        (entry) => entry.id === cursor.taskId && entry.position === cursor.position,
+      )
+    ) {
+      throw new PaginationConflictError();
+    }
   }
 
   private ref(columnId: string, taskId: string): TaskFileRef {

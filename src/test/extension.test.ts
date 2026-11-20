@@ -420,6 +420,46 @@ suite('iKanban extension', () => {
     }
   });
 
+  test('loads first pages and serves a next page through task/page', async () => {
+    await request<BoardSnapshot>('board/initialize', {});
+    for (let index = 0; index < 21; index += 1) {
+      await request<TaskView>('task/create', {
+        columnId: 'backlog',
+        title: `Paged task ${String(index).padStart(2, '0')}`,
+        description: '',
+        priority: 'medium',
+        tags: [],
+      });
+    }
+
+    const first = await request<BoardSnapshot>('board/load', {});
+    const backlog = first.columns.find((column) => column.id === 'backlog');
+    assert.ok(backlog);
+    assert.strictEqual(backlog.taskCount, 21);
+    assert.strictEqual(backlog.loadedCount, 20);
+    assert.strictEqual(backlog.hasMore, true);
+    assert.ok(backlog.tasksRevision);
+    assert.strictEqual(
+      first.tasks.filter((task) => task.columnId === 'backlog').length,
+      20,
+    );
+
+    const page = await request<{
+      tasks: TaskView[];
+      hasMore: boolean;
+      taskCount: number;
+      tasksRevision: string;
+    }>('task/page', {
+      columnId: 'backlog',
+      cursor: backlog.nextCursor ?? null,
+      expectedTasksRevision: backlog.tasksRevision,
+    });
+    assert.strictEqual(page.tasks.length, 1);
+    assert.strictEqual(page.hasMore, false);
+    assert.strictEqual(page.taskCount, 21);
+    assert.strictEqual(page.tasksRevision, backlog.tasksRevision);
+  });
+
   test('end-to-end: column, task, checklists, items, move, reload, delete', async () => {
     let snapshot = await request<BoardSnapshot>('board/initialize', {});
     assert.ok(snapshot.board);

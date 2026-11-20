@@ -11,7 +11,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { BoardSnapshot, ColumnView, TaskView } from '../shared/board';
+import type { BoardSnapshot, ColumnView, TaskPage, TaskView } from '../shared/board';
 import type { BoardPushMessage } from '../shared/protocol';
 import {
   ApiError,
@@ -46,6 +46,7 @@ export function App({ client }: { client?: BoardClientLike }) {
   const [state, dispatch] = useReducer(boardReducer, initialBoardState);
   const [moveInProgress, setMoveInProgress] = useState(false);
   const deletedTaskIdsRef = useRef(new Set<string>());
+  const loadingPagesRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (!boardClient) {
@@ -86,8 +87,8 @@ export function App({ client }: { client?: BoardClientLike }) {
   );
 
   const snapshot = state.snapshot;
-  const columns = snapshot?.columns ?? [];
-  const tasks = snapshot?.tasks ?? [];
+  const columns = useMemo(() => snapshot?.columns ?? [], [snapshot]);
+  const tasks = useMemo(() => snapshot?.tasks ?? [], [snapshot]);
   const workspaceName = snapshot?.workspaceName;
 
   const [layoutChoice, setLayoutChoice] = useState<{
@@ -140,6 +141,40 @@ export function App({ client }: { client?: BoardClientLike }) {
       dispatch({ type: 'busy', busy: false });
     }
   }, [applySnapshot, boardClient, reportError]);
+
+  const loadMore = useCallback(
+    async (columnId: string) => {
+      const page = state.pages[columnId];
+      if (
+        !boardClient ||
+        !page ||
+        !page.hasMore ||
+        page.status === 'loading' ||
+        loadingPagesRef.current.has(columnId)
+      ) {
+        return;
+      }
+      loadingPagesRef.current.add(columnId);
+      dispatch({ type: 'page-loading', columnId });
+      try {
+        const next = await boardClient.request<TaskPage>('task/page', {
+          columnId,
+          cursor: page.cursor,
+          expectedTasksRevision: page.tasksRevision,
+        });
+        dispatch({ type: 'page-loaded', columnId, page: next });
+      } catch (error) {
+        if (error instanceof ApiError && error.code === 'PaginationConflict') {
+          await load();
+          return;
+        }
+        dispatch({ type: 'page-failed', columnId, message: messageOf(error) });
+      } finally {
+        loadingPagesRef.current.delete(columnId);
+      }
+    },
+    [boardClient, load, state.pages],
+  );
 
   const initialize = useCallback(async () => {
     if (!boardClient) {
@@ -285,7 +320,7 @@ export function App({ client }: { client?: BoardClientLike }) {
     if (!target) {
       return;
     }
-    const targetIndex = tasks.filter((entry) => entry.columnId === target.id).length;
+    const targetIndex = target.taskCount;
     void moveTask(task, target.id, targetIndex);
   };
 
@@ -385,6 +420,11 @@ export function App({ client }: { client?: BoardClientLike }) {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
+  const columnTaskCounts = useMemo(
+    () => Object.fromEntries(columns.map((column) => [column.id, column.taskCount])),
+    [columns],
+  );
+
   const {
     dragPreview,
     draggedTask,
@@ -393,7 +433,7 @@ export function App({ client }: { client?: BoardClientLike }) {
     handleDragOver: handleTaskDragOver,
     handleDragEnd: handleTaskDragEnd,
     handleDragCancel: handleTaskDragCancel,
-  } = useDragPreview({ columns, tasks, moveTask });
+  } = useDragPreview({ columns, tasks, columnTaskCounts, moveTask });
 
   const {
     previewColumns,
@@ -510,6 +550,8 @@ export function App({ client }: { client?: BoardClientLike }) {
                   tasks={tasksFor(column.id)}
                   cardLayout={activeCardLayout}
                   isDropTarget={draggedColumnId === column.id}
+                  page={state.pages[column.id]}
+                  onLoadMore={loadMore}
                   dragDisabled={state.busy || moveInProgress}
                   onAddTask={(target) =>
                     dispatch({

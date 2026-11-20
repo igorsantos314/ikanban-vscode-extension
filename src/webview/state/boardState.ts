@@ -1,4 +1,4 @@
-import type { BoardSnapshot, ColumnView, TaskView } from '../../shared/board';
+import type { BoardSnapshot, ColumnView, TaskCursor, TaskPage, TaskView } from '../../shared/board';
 import { sortByPosition } from '../../domain/positions';
 
 export type TaskDialogTarget =
@@ -18,9 +18,18 @@ export interface BannerMessage {
   message: string;
 }
 
+export interface ColumnPageState {
+  cursor: TaskCursor | null;
+  hasMore: boolean;
+  tasksRevision: string;
+  status: 'idle' | 'loading' | 'error' | 'end';
+  error?: string;
+}
+
 export interface BoardUiState {
   status: 'loading' | 'ready' | 'empty' | 'error';
   snapshot: BoardSnapshot | null;
+  pages: Record<string, ColumnPageState>;
   banner: BannerMessage | null;
   taskDialog: TaskDialogTarget | null;
   columnDialog: ColumnDialogTarget | null;
@@ -32,6 +41,9 @@ export interface BoardUiState {
 export type BoardAction =
   | { type: 'loading' }
   | { type: 'loaded'; snapshot: BoardSnapshot }
+  | { type: 'page-loading'; columnId: string }
+  | { type: 'page-loaded'; columnId: string; page: TaskPage }
+  | { type: 'page-failed'; columnId: string; message: string }
   | { type: 'failed'; message: string }
   | { type: 'banner'; banner: BannerMessage }
   | { type: 'dismiss-banner' }
@@ -46,6 +58,7 @@ export type BoardAction =
 export const initialBoardState: BoardUiState = {
   status: 'loading',
   snapshot: null,
+  pages: {},
   banner: null,
   taskDialog: null,
   columnDialog: null,
@@ -58,14 +71,49 @@ export function boardReducer(state: BoardUiState, action: BoardAction): BoardUiS
   switch (action.type) {
     case 'loading':
       return { ...state, status: 'loading', busy: true, banner: null };
-    case 'loaded':
+    case 'loaded': {
+      const merged = mergeLoadedSnapshot(state, action.snapshot);
       return {
         ...state,
-        snapshot: action.snapshot,
+        snapshot: merged.snapshot,
+        pages: merged.pages,
         status: statusFor(action.snapshot),
         busy: false,
         banner: null,
       };
+    }
+    case 'page-loading':
+      return {
+        ...state,
+        pages: {
+          ...state.pages,
+          [action.columnId]: {
+            ...(state.pages[action.columnId] ?? {
+              cursor: null,
+              hasMore: false,
+              tasksRevision: '',
+              status: 'idle',
+            }),
+            status: 'loading',
+            error: undefined,
+          },
+        },
+      };
+    case 'page-loaded':
+      return applyPageLoaded(state, action.columnId, action.page);
+    case 'page-failed': {
+      const current = state.pages[action.columnId];
+      if (!current) {
+        return state;
+      }
+      return {
+        ...state,
+        pages: {
+          ...state.pages,
+          [action.columnId]: { ...current, status: 'error', error: action.message },
+        },
+      };
+    }
     case 'failed':
       return {
         ...state,
@@ -94,6 +142,112 @@ export function boardReducer(state: BoardUiState, action: BoardAction): BoardUiS
   }
 }
 
+function pageFromSnapshot(snapshot: BoardSnapshot): Record<string, ColumnPageState> {
+  const pages: Record<string, ColumnPageState> = {};
+  for (const column of snapshot.columns) {
+    const hasMore = column.hasMore ?? false;
+    pages[column.id] = {
+      cursor: column.nextCursor ?? null,
+      hasMore,
+      tasksRevision: column.tasksRevision ?? '',
+      status: hasMore ? 'idle' : 'end',
+    };
+  }
+  return pages;
+}
+
+function mergeLoadedSnapshot(
+  state: BoardUiState,
+  next: BoardSnapshot,
+): { snapshot: BoardSnapshot; pages: Record<string, ColumnPageState> } {
+  const previous = state.snapshot;
+  if (!previous) {
+    return { snapshot: next, pages: pageFromSnapshot(next) };
+  }
+
+  const tasksByColumn = new Map<string, TaskView[]>();
+  for (const column of next.columns) {
+    const previousPage = state.pages[column.id];
+    const previousColumn = previous.columns.find((entry) => entry.id === column.id);
+    const keepPrevious =
+      previousPage &&
+      previousColumn &&
+      Boolean(column.tasksRevision) &&
+      previousPage.tasksRevision === column.tasksRevision;
+    const tasks = keepPrevious
+      ? previous.tasks.filter((task) => task.columnId === column.id)
+      : next.tasks.filter((task) => task.columnId === column.id);
+    tasksByColumn.set(column.id, tasks);
+  }
+
+  const columns = next.columns.map((column) => ({
+    ...column,
+    loadedCount: tasksByColumn.get(column.id)?.length ?? 0,
+  }));
+  const tasks = sortTasks(
+    { ...next, columns, tasks: [] },
+    columns.flatMap((column) => tasksByColumn.get(column.id) ?? []),
+  );
+  const pages: Record<string, ColumnPageState> = {};
+  for (const column of columns) {
+    const previousPage = state.pages[column.id];
+    const keepPrevious =
+      previousPage &&
+      Boolean(column.tasksRevision) &&
+      previousPage.tasksRevision === column.tasksRevision;
+    pages[column.id] = keepPrevious
+      ? previousPage
+      : {
+          cursor: column.nextCursor ?? null,
+          hasMore: column.hasMore ?? false,
+          tasksRevision: column.tasksRevision ?? '',
+          status: (column.hasMore ?? false) ? 'idle' : 'end',
+        };
+  }
+  return { snapshot: { ...next, columns, tasks }, pages };
+}
+
+function applyPageLoaded(
+  state: BoardUiState,
+  columnId: string,
+  page: TaskPage,
+): BoardUiState {
+  if (!state.snapshot) {
+    return state;
+  }
+  const existingIds = new Set(state.snapshot.tasks.map((task) => task.id));
+  const appended = page.tasks.filter((task) => !existingIds.has(task.id));
+  const tasks = sortTasks(state.snapshot, [...state.snapshot.tasks, ...appended]);
+  const columns = state.snapshot.columns.map((column) => {
+    if (column.id !== columnId) {
+      return column;
+    }
+    const loadedCount =
+      tasks.filter((task) => task.columnId === columnId).length;
+    return {
+      ...column,
+      taskCount: page.taskCount,
+      tasksRevision: page.tasksRevision,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+      loadedCount,
+    };
+  });
+  return {
+    ...state,
+    snapshot: { ...state.snapshot, tasks, columns },
+    pages: {
+      ...state.pages,
+      [columnId]: {
+        cursor: page.nextCursor,
+        hasMore: page.hasMore,
+        tasksRevision: page.tasksRevision,
+        status: page.hasMore ? 'idle' : 'end',
+      },
+    },
+  };
+}
+
 export function statusFor(snapshot: BoardSnapshot): BoardUiState['status'] {
   if (snapshot.board) {
     return 'ready';
@@ -105,19 +259,51 @@ function upsertTask(snapshot: BoardSnapshot | null, task: TaskView): BoardSnapsh
   if (!snapshot) {
     return snapshot;
   }
+  const previous = snapshot.tasks.find((entry) => entry.id === task.id);
   const without = snapshot.tasks.filter((entry) => entry.id !== task.id);
   const tasks = sortTasks(snapshot, [...without, task]);
-  return withTasks(snapshot, tasks);
+  const columns = snapshot.columns.map((column) => {
+    let taskCount = column.taskCount;
+    if (previous && previous.columnId !== task.columnId) {
+      if (column.id === previous.columnId) {
+        taskCount -= 1;
+      }
+      if (column.id === task.columnId) {
+        taskCount += 1;
+      }
+    } else if (!previous && column.id === task.columnId) {
+      taskCount += 1;
+    }
+    return {
+      ...column,
+      taskCount,
+      ...(column.id === task.columnId
+        ? { loadedCount: tasks.filter((entry) => entry.columnId === column.id).length }
+        : {}),
+    };
+  });
+  return { ...snapshot, tasks, columns };
 }
 
 function removeTask(snapshot: BoardSnapshot | null, taskId: string): BoardSnapshot | null {
   if (!snapshot) {
     return snapshot;
   }
-  return withTasks(
-    snapshot,
-    snapshot.tasks.filter((task) => task.id !== taskId),
-  );
+  const removed = snapshot.tasks.find((task) => task.id === taskId);
+  const tasks = snapshot.tasks.filter((task) => task.id !== taskId);
+  return {
+    ...snapshot,
+    tasks,
+    columns: snapshot.columns.map((column) =>
+      column.id === removed?.columnId
+        ? {
+            ...column,
+            taskCount: Math.max(0, column.taskCount - 1),
+            loadedCount: tasks.filter((task) => task.columnId === column.id).length,
+          }
+        : column,
+    ),
+  };
 }
 
 function sortTasks(snapshot: BoardSnapshot, tasks: TaskView[]): TaskView[] {
@@ -131,17 +317,6 @@ function sortTasks(snapshot: BoardSnapshot, tasks: TaskView[]): TaskView[] {
     const sorted = sortByPosition([left, right]);
     return sorted[0]?.id === left.id ? -1 : 1;
   });
-}
-
-function withTasks(snapshot: BoardSnapshot, tasks: TaskView[]): BoardSnapshot {
-  return {
-    ...snapshot,
-    tasks,
-    columns: snapshot.columns.map((column) => ({
-      ...column,
-      taskCount: tasks.filter((task) => task.columnId === column.id).length,
-    })),
-  };
 }
 
 export interface MoveTarget {

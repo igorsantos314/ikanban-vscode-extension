@@ -37,6 +37,7 @@ This skill is a file-based contract. Any agent that can read and write workspace
 - A task belongs to the column whose directory contains its file.
 - Task IDs must be unique across the whole board.
 - Checklists and checklist items are embedded in the task file, not stored separately.
+- `.ikanban/.index/` is a derived, git-ignored pagination index. Never treat it as task data and never edit it by hand; if it is stale or deleted, the extension rebuilds it from the task files.
 
 ## Board document
 

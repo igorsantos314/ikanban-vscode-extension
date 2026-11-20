@@ -113,6 +113,26 @@ export class BoardPanel {
         await this.refresh();
       },
       (message, error) => this.log(message, error),
+      async (uris) => {
+        const service = this.dependencies.session.service;
+        for (const raw of uris) {
+          const uri = Uri.parse(raw);
+          const parts = uri.path.split('/').filter((part) => part.length > 0);
+          const index = parts.lastIndexOf('.ikanban');
+          const columnId = index >= 0 ? parts[index + 1] : undefined;
+          const fileName = parts[parts.length - 1] ?? '';
+          if (
+            columnId &&
+            fileName !== 'board.yaml' &&
+            fileName !== 'column.yaml' &&
+            fileName.endsWith('.yaml')
+          ) {
+            await service.invalidateColumnIndex(columnId);
+          } else {
+            await service.invalidateAllIndexes();
+          }
+        }
+      },
     );
 
     this.disposables.push(

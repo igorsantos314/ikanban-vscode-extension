@@ -18,10 +18,16 @@ export interface DragPreview {
 export interface UseDragPreviewOptions {
   columns: readonly { id: string }[];
   tasks: readonly TaskView[];
+  columnTaskCounts?: Record<string, number>;
   moveTask(task: TaskView, toColumnId: string, targetIndex: number): Promise<void>;
 }
 
-export function useDragPreview({ columns, tasks, moveTask }: UseDragPreviewOptions) {
+export function useDragPreview({
+  columns,
+  tasks,
+  columnTaskCounts = {},
+  moveTask,
+}: UseDragPreviewOptions) {
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
 
@@ -100,11 +106,23 @@ export function useDragPreview({ columns, tasks, moveTask }: UseDragPreviewOptio
         setDragPreview(null);
         return;
       }
-      void moveTask(task, target.toColumnId, target.targetIndex)
+      const targetOrder = preview.order[target.toColumnId] ?? [];
+      const isAtEnd = targetOrder[targetOrder.length - 1] === activeId;
+      const fallbackEnd = Math.max(0, targetOrder.length - 1);
+      const targetIndex = isAtEnd
+        ? columnTaskCounts[target.toColumnId] !== undefined
+          ? Math.max(
+              0,
+              columnTaskCounts[target.toColumnId]! -
+                (task.columnId === target.toColumnId ? 1 : 0),
+            )
+          : fallbackEnd
+        : target.targetIndex;
+      void moveTask(task, target.toColumnId, targetIndex)
         .catch(() => undefined)
         .finally(() => setDragPreview(null));
     },
-    [columns, dragPreview, moveTask, tasks],
+    [columnTaskCounts, columns, dragPreview, moveTask, tasks],
   );
 
   const handleDragCancel = useCallback(() => {

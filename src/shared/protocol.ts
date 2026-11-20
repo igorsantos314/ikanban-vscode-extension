@@ -262,6 +262,25 @@ const fileOpen = z.object({
     .strict(),
 });
 
+const taskPage = z.object({
+  type: z.literal('task/page'),
+  requestId: z.string().min(1),
+  payload: z
+    .object({
+      columnId: z.string(),
+      cursor: z
+        .object({
+          position: z.number().int().nonnegative(),
+          taskId: z.string(),
+        })
+        .strict()
+        .nullable(),
+      expectedTasksRevision: revisionSchema,
+      limit: z.number().int().positive().max(100).optional(),
+    })
+    .strict(),
+});
+
 export const protocolRequestSchema = z.discriminatedUnion('type', [
   boardLoad,
   boardInitialize,
@@ -274,6 +293,7 @@ export const protocolRequestSchema = z.discriminatedUnion('type', [
   taskUpdate,
   taskDelete,
   taskMove,
+  taskPage,
   checklistCreate,
   checklistUpdate,
   checklistDelete,

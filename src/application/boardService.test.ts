@@ -875,3 +875,161 @@ describe('concurrency safety', () => {
     expect(after.board!.columnIds).toHaveLength(3);
   });
 });
+
+describe('paginated board loading', () => {
+  it('loads only the first page per column and pages with a stable cursor', async () => {
+    const { service, workspace } = await setup();
+    for (let index = 0; index < 25; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${String(index).padStart(2, '0')}` }));
+    }
+
+    const first = await service.loadBoard();
+    const backlog = column(first, 'backlog')!;
+    expect(backlog.taskCount).toBe(25);
+    expect(backlog.loadedCount).toBe(20);
+    expect(backlog.hasMore).toBe(true);
+    expect(first.tasks.filter((task) => task.columnId === 'backlog')).toHaveLength(20);
+
+    const page = await service.loadTaskPage({
+      columnId: 'backlog',
+      cursor: backlog.nextCursor ?? null,
+      limit: 20,
+      expectedTasksRevision: backlog.tasksRevision!,
+    });
+    expect(page.tasks).toHaveLength(5);
+    expect(page.hasMore).toBe(false);
+    expect(new Set([...first.tasks, ...page.tasks].map((task) => task.id)).size).toBe(25);
+
+    const indexUri = workspace.fs.joinPath(
+      workspace.ikanbanUri,
+      '.index',
+      'backlog.json',
+    );
+    expect(await workspace.fs.exists(indexUri)).toBe(true);
+  });
+
+  it('rejects a stale page cursor revision', async () => {
+    const { service } = await setup();
+    for (let index = 0; index < 22; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${index}` }));
+    }
+    const first = await service.loadBoard();
+    const backlog = column(first, 'backlog')!;
+    await service.createTask(taskInput({ title: 'New task' }));
+
+    await expect(
+      service.loadTaskPage({
+        columnId: 'backlog',
+        cursor: backlog.nextCursor ?? null,
+        expectedTasksRevision: backlog.tasksRevision!,
+      }),
+    ).rejects.toMatchObject({ code: 'PaginationConflict' });
+  });
+
+  it('rebuilds a missing or corrupt index', async () => {
+    const { service, workspace } = await setup();
+    for (let index = 0; index < 21; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${index}` }));
+    }
+    await service.loadBoard();
+    const indexUri = workspace.fs.joinPath(workspace.ikanbanUri, '.index', 'backlog.json');
+    await workspace.fs.delete(indexUri);
+    const rebuilt = await service.loadBoard();
+    expect(column(rebuilt, 'backlog')?.taskCount).toBe(21);
+
+    await workspace.fs.writeFile(indexUri, new TextEncoder().encode('{not json'));
+    const repaired = await service.loadBoard();
+    expect(column(repaired, 'backlog')?.taskCount).toBe(21);
+  });
+
+  it('resets the revision when a task file changes externally', async () => {
+    const { service, workspace } = await setup();
+    for (let index = 0; index < 21; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${index}` }));
+    }
+    const first = await service.loadBoard();
+    const revision = column(first, 'backlog')!.tasksRevision;
+
+    const task = first.tasks.find((entry) => entry.columnId === 'backlog')!;
+    const uri = workspace.fs.joinPath(
+      workspace.ikanbanUri,
+      'backlog',
+      `${task.id}.yaml`,
+    );
+    const raw = new TextDecoder().decode(await workspace.fs.readFile(uri));
+    await workspace.fs.writeFile(
+      uri,
+      new TextEncoder().encode(raw.replace(task.title, `${task.title} edited`)),
+    );
+
+    const after = await service.loadBoard();
+    expect(column(after, 'backlog')!.tasksRevision).not.toBe(revision);
+  });
+
+  it('validates the whole board explicitly after a paginated load', async () => {
+    const { service, workspace } = await setup();
+    for (let index = 0; index < 22; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${index}` }));
+    }
+    await service.loadBoard();
+    const later = (await service.loadTaskPage({
+      columnId: 'backlog',
+      cursor: column(await service.loadBoard(), 'backlog')!.nextCursor ?? null,
+      limit: 20,
+      expectedTasksRevision: column(await service.loadBoard(), 'backlog')!.tasksRevision!,
+    })).tasks[0]!;
+    const uri = workspace.fs.joinPath(workspace.ikanbanUri, 'backlog', `${later.id}.yaml`);
+    await workspace.fs.writeFile(uri, new TextEncoder().encode('title: [broken'));
+
+    const loaded = await service.loadBoard();
+    expect(loaded.tasks.length).toBeGreaterThan(0);
+    const validated = await service.validateBoard();
+    expect(validated.issues.some((issue) => issue.uri === uri.toString())).toBe(true);
+  });
+});
+
+describe('page I/O scope', () => {
+  it('does not read unloaded task files when the index is valid', async () => {
+    const workspace = await createTestWorkspace();
+    workspaces.push(workspace);
+    let reads = 0;
+    const fs = new Proxy(workspace.fs, {
+      get(target, property) {
+        if (property === 'readFile') {
+          return async (uri: Parameters<typeof target.readFile>[0]) => {
+            reads += 1;
+            return target.readFile(uri);
+          };
+        }
+        const value = Reflect.get(target, property) as unknown;
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as typeof workspace.fs;
+    const store = new YamlFileStore(fs);
+    const board = new YamlBoardRepository(fs, store, workspace.ikanbanUri);
+    const tasks = new YamlTaskRepository(fs, store, board);
+    const service = new BoardService({
+      board,
+      tasks,
+      clock: new FixedClock(),
+      ids: new SequenceIdGenerator(),
+      workspaceName: 'Test Workspace',
+    });
+    services.push(service);
+    await service.initializeBoard();
+    for (let index = 0; index < 25; index += 1) {
+      await service.createTask(taskInput({ title: `Scoped ${index}` }));
+    }
+
+    const snapshot = await service.loadBoard();
+    const backlog = column(snapshot, 'backlog')!;
+    reads = 0;
+    const page = await service.loadTaskPage({
+      columnId: 'backlog',
+      cursor: backlog.nextCursor ?? null,
+      expectedTasksRevision: backlog.tasksRevision!,
+    });
+    expect(page.tasks).toHaveLength(5);
+    expect(reads).toBeLessThan(25);
+  });
+});

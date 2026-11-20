@@ -4,6 +4,7 @@ export type ErrorCode =
   | 'DuplicateEntityError'
   | 'StorageError'
   | 'ConflictError'
+  | 'PaginationConflict'
   | 'UnsupportedSchemaVersionError'
   | 'WorkspaceNotAvailableError'
   | 'WorkspaceNotTrustedError';
@@ -51,6 +52,15 @@ export class ConflictError extends IkanbanError {
     super(
       'ConflictError',
       `This ${entity.toLowerCase()} was modified outside iKanban. Reload before saving.`,
+    );
+  }
+}
+
+export class PaginationConflictError extends IkanbanError {
+  constructor() {
+    super(
+      'PaginationConflict',
+      'This column changed while loading more tasks. The column will reload.',
     );
   }
 }

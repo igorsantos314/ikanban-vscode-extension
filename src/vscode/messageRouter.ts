@@ -23,6 +23,7 @@ export type RouterService = Pick<
   | 'updateTask'
   | 'deleteTask'
   | 'moveTask'
+  | 'loadTaskPage'
   | 'createChecklist'
   | 'updateChecklist'
   | 'deleteChecklist'
@@ -128,6 +129,8 @@ export class MessageRouter {
         return { taskId: request.payload.taskId };
       case 'task/move':
         return this.service.moveTask(request.payload);
+      case 'task/page':
+        return this.service.loadTaskPage(request.payload);
       case 'checklist/create':
         return this.service.createChecklist(request.payload);
       case 'checklist/update':

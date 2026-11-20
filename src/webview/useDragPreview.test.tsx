@@ -196,3 +196,22 @@ describe('useDragPreview', () => {
     expect(hook.result.current.dragPreview).toBeNull();
   });
 });
+
+describe('useDragPreview with partial columns', () => {
+  it('appends at the full column count when dropped at the end', async () => {
+    const moveTask = vi.fn(async () => undefined);
+    const hook = renderHook(() =>
+      useDragPreview({
+        columns,
+        tasks,
+        columnTaskCounts: { backlog: 2, done: 100 },
+        moveTask,
+      }),
+    );
+    act(() => hook.result.current.handleDragStart(start()));
+    act(() => hook.result.current.handleDragOver(over('column:done')));
+    act(() => hook.result.current.handleDragEnd(end()));
+
+    expect(moveTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }), 'done', 100);
+  });
+});

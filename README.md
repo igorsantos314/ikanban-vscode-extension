@@ -108,6 +108,14 @@ Drag-and-drop shows the card following the pointer, previews the target column a
 
 Use the **Expanded** / **Compact** control in the toolbar to switch card density. **Expanded** shows the description, tag labels, checklist bar, deadline and last-updated time. **Compact** is exactly two lines: the title and one metadata line with priority icon, checklist count, tag icons and deadline. The choice is stored per workspace and restored when the board is reopened.
 
+### Large columns and pagination
+
+Columns load 20 tasks at a time. Scroll to the bottom of a column to load the next page, or use the **Load more** action for keyboard navigation. The column header count always shows the full number of tasks, even when only part of the column is loaded. A failure keeps the loaded cards and offers Retry, and an external file change resets only the affected column.
+
+The extension keeps a derived index at `.ikanban/.index/<column-id>.json` so it can order and page through task files without reading every YAML. This index is derived data: deleting it is safe, it is git-ignored, and it is rebuilt from task files whenever it is missing or stale. Task YAML remains the only source of truth. The index stores task IDs, positions and file metadata, never task content.
+
+Opening or refreshing the board validates only the loaded pages. Run **iKanban: Validate Board** to scan the whole board and publish complete diagnostics.
+
 A task can have an optional deadline with date and time. In the task dialog, fill the masked **DD/MM/AAAA** and **HH:MM** fields; separators are inserted automatically and the form moves from the date to the time field when the date is complete. Both fields are required when a deadline is set, and **Clear deadline** removes it. The card shows the deadline in your local timezone and marks an overdue deadline.
 
 When an existing task is open, text fields start read-only. Click a field (or focus it and press `Enter`/`Space`) to enable editing; it stays editable until the dialog closes. Changes save automatically: text is debounced shortly after typing stops, while column, priority, tag, deadline and checklist toggles are saved immediately. The dialog states this at the top and shows saving, saved, failed or conflict status.

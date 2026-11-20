@@ -34,8 +34,14 @@ function snapshot(tasks: TaskView[] = []): BoardSnapshot {
     workspaceName: 'Workspace',
     board: { version: 1, name: 'Board', columnIds: ['backlog', 'done'], revision: 'board-rev' },
     columns: [
-      { id: 'backlog', title: 'Backlog', color: '#64748b', revision: 'a', taskCount: 0 },
-      { id: 'done', title: 'Done', color: '#22c55e', revision: 'b', taskCount: 0 },
+      {
+        id: 'backlog', title: 'Backlog', color: '#64748b', revision: 'a',
+        taskCount: tasks.filter((task) => task.columnId === 'backlog').length,
+      },
+      {
+        id: 'done', title: 'Done', color: '#22c55e', revision: 'b',
+        taskCount: tasks.filter((task) => task.columnId === 'done').length,
+      },
     ],
     tasks,
     issues: [],
@@ -237,5 +243,115 @@ describe('drag preview order', () => {
   it('locates tasks in the preview order', () => {
     expect(locateTaskInPreview(order, 'c')).toEqual({ columnId: 'backlog', index: 2 });
     expect(locateTaskInPreview(order, 'missing')).toBeNull();
+  });
+});
+
+describe('pagination state', () => {
+  function pagedSnapshot(revision: string, tasks: TaskView[], hasMore = true): BoardSnapshot {
+    return {
+      workspaceName: 'Workspace',
+      board: { version: 1, name: 'Board', columnIds: ['backlog'], revision: 'b' },
+      columns: [
+        {
+          id: 'backlog',
+          title: 'Backlog',
+          color: '#64748b',
+          revision: 'col',
+          taskCount: hasMore ? tasks.length + 1 : tasks.length,
+          loadedCount: tasks.length,
+          tasksRevision: revision,
+          hasMore,
+          nextCursor: hasMore
+            ? { position: tasks[tasks.length - 1]!.position, taskId: tasks[tasks.length - 1]!.id }
+            : null,
+        },
+      ],
+      tasks,
+      issues: [],
+      canInitialize: false,
+    };
+  }
+
+  it('keeps loaded pages when the column revision is unchanged', () => {
+    const first = task({ id: 'a', position: 1024 });
+    const second = task({ id: 'b', position: 2048 });
+    let state = boardReducer(initialBoardState, {
+      type: 'loaded',
+      snapshot: pagedSnapshot('rev-1', [first]),
+    });
+    state = boardReducer(state, {
+      type: 'loaded',
+      snapshot: pagedSnapshot('rev-1', [first]),
+    });
+    expect(state.snapshot?.tasks.map((entry) => entry.id)).toEqual(['a']);
+
+    state = boardReducer(state, {
+      type: 'page-loaded',
+      columnId: 'backlog',
+      page: {
+        columnId: 'backlog',
+        tasks: [second],
+        nextCursor: null,
+        hasMore: false,
+        taskCount: 2,
+        tasksRevision: 'rev-1',
+      },
+    });
+    expect(state.snapshot?.tasks.map((entry) => entry.id)).toEqual(['a', 'b']);
+    expect(state.pages.backlog?.status).toBe('end');
+  });
+
+  it('resets a column when its revision changes', () => {
+    const first = task({ id: 'a', position: 1024 });
+    const replacement = task({ id: 'c', position: 1024 });
+    let state = boardReducer(initialBoardState, {
+      type: 'loaded',
+      snapshot: pagedSnapshot('rev-1', [first]),
+    });
+    state = boardReducer(state, {
+      type: 'loaded',
+      snapshot: pagedSnapshot('rev-2', [replacement]),
+    });
+    expect(state.snapshot?.tasks.map((entry) => entry.id)).toEqual(['c']);
+    expect(state.pages.backlog?.tasksRevision).toBe('rev-2');
+  });
+
+  it('does not duplicate repeated page tasks', () => {
+    const first = task({ id: 'a', position: 1024 });
+    const state = boardReducer(
+      boardReducer(initialBoardState, {
+        type: 'loaded',
+        snapshot: pagedSnapshot('rev-1', [first]),
+      }),
+      {
+        type: 'page-loaded',
+        columnId: 'backlog',
+        page: {
+          columnId: 'backlog',
+          tasks: [first],
+          nextCursor: null,
+          hasMore: false,
+          taskCount: 1,
+          tasksRevision: 'rev-1',
+        },
+      },
+    );
+    expect(state.snapshot?.tasks).toHaveLength(1);
+  });
+
+  it('tracks loading and failure states', () => {
+    const first = task({ id: 'a', position: 1024 });
+    let state = boardReducer(initialBoardState, {
+      type: 'loaded',
+      snapshot: pagedSnapshot('rev-1', [first]),
+    });
+    state = boardReducer(state, { type: 'page-loading', columnId: 'backlog' });
+    expect(state.pages.backlog?.status).toBe('loading');
+    state = boardReducer(state, {
+      type: 'page-failed',
+      columnId: 'backlog',
+      message: 'No connection',
+    });
+    expect(state.pages.backlog).toMatchObject({ status: 'error', error: 'No connection' });
   });
 });

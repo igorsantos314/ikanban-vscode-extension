@@ -704,3 +704,61 @@ describe('App', () => {
   });
 
 });
+
+describe('App pagination', () => {
+  it('loads the next page when Load more is activated', async () => {
+    const user = userEvent.setup();
+    const firstTask = task({ id: 'task-page-1', title: 'Page one', position: 1024 });
+    const secondTask = task({ id: 'task-page-2', title: 'Page two', position: 2048 });
+    const firstSnapshot: BoardSnapshot = {
+      workspaceName: 'Workspace',
+      board: {
+        version: 1,
+        name: 'Paged',
+        columnIds: ['backlog'],
+        revision: 'board-rev',
+      },
+      columns: [
+        {
+          id: 'backlog',
+          title: 'Backlog',
+          color: '#64748b',
+          revision: 'col',
+          taskCount: 2,
+          loadedCount: 1,
+          tasksRevision: 'tasks-rev',
+          hasMore: true,
+          nextCursor: { position: firstTask.position, taskId: firstTask.id },
+        },
+      ],
+      tasks: [firstTask],
+      issues: [],
+      canInitialize: false,
+    };
+    const { client, request } = fakeClient({
+      load: firstSnapshot,
+      onRequest: (type) =>
+        type === 'task/page'
+          ? {
+              columnId: 'backlog',
+              tasks: [secondTask],
+              nextCursor: null,
+              hasMore: false,
+              taskCount: 2,
+              tasksRevision: 'tasks-rev',
+            }
+          : undefined,
+    });
+    render(<App client={client} />);
+    await screen.findByText('Page one');
+    await user.click(screen.getByRole('button', { name: 'Load more' }));
+
+    await screen.findByText('Page two');
+    expect(request).toHaveBeenCalledWith('task/page', {
+      columnId: 'backlog',
+      cursor: { position: firstTask.position, taskId: firstTask.id },
+      expectedTasksRevision: 'tasks-rev',
+    });
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+});

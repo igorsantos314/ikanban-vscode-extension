@@ -328,6 +328,28 @@ textarea:focus-visible,
   text-align: center;
 }
 
+.column-page-sentinel {
+  height: 1px;
+  flex: 0 0 auto;
+}
+
+.column-page-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 2px 0;
+  color: var(--ikanban-muted);
+  font-size: 10.5px;
+  text-align: center;
+}
+
+.column-load-more {
+  width: 100%;
+  justify-content: center;
+}
+
 /* Buttons and inputs */
 
 .btn {

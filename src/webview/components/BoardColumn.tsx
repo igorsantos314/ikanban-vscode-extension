@@ -1,8 +1,9 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { ColumnView, TaskView } from '../../shared/board';
 import type { CardLayout } from '../cardLayout';
+import type { ColumnPageState } from '../state/boardState';
 import { TaskCard, type KeyboardMoveDirection } from './TaskCard';
 
 export function BoardColumn({
@@ -10,6 +11,8 @@ export function BoardColumn({
   tasks,
   cardLayout,
   isDropTarget,
+  page,
+  onLoadMore,
   onAddTask,
   onEditTask,
   onKeyboardMoveTask,
@@ -22,6 +25,8 @@ export function BoardColumn({
   tasks: readonly TaskView[];
   cardLayout: CardLayout;
   isDropTarget?: boolean;
+  page?: ColumnPageState;
+  onLoadMore(columnId: string): void;
   onAddTask(column: ColumnView): void;
   onEditTask(task: TaskView): void;
   onKeyboardMoveTask(task: TaskView, direction: KeyboardMoveDirection): void;
@@ -31,6 +36,30 @@ export function BoardColumn({
   dragDisabled?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `column:${column.id}` });
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (
+      !page?.hasMore ||
+      page.status === 'loading' ||
+      !sentinel ||
+      typeof IntersectionObserver === 'undefined'
+    ) {
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMore(column.id);
+        }
+      },
+      { root: scrollRef.current, rootMargin: '120px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [column.id, onLoadMore, page?.hasMore, page?.status]);
   const {
     listeners,
     setNodeRef: setHeaderRef,
@@ -74,9 +103,9 @@ export function BoardColumn({
           <h2 className="column-title">{column.title}</h2>
           <span
             className="column-count"
-            aria-label={`${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`}
+            aria-label={`${column.taskCount} ${column.taskCount === 1 ? 'task' : 'tasks'}`}
           >
-            {tasks.length}
+            {column.taskCount}
           </span>
         </div>
         <div
@@ -102,7 +131,7 @@ export function BoardColumn({
         </div>
       </header>
 
-      <div className="column-scroll">
+      <div className="column-scroll" ref={scrollRef}>
         <button
           type="button"
           className="column-add"
@@ -127,8 +156,33 @@ export function BoardColumn({
             />
           ))}
         </SortableContext>
-        {tasks.length === 0 ? (
+        {tasks.length === 0 && column.taskCount === 0 ? (
           <p className="column-empty">No tasks yet</p>
+        ) : null}
+
+        <div ref={sentinelRef} className="column-page-sentinel" aria-hidden="true" />
+
+        {page?.status === 'loading' ? (
+          <p className="column-page-state" role="status">
+            Loading more tasks…
+          </p>
+        ) : page?.status === 'error' ? (
+          <div className="column-page-state">
+            <span role="alert">{page.error ?? 'Could not load more tasks.'}</span>
+            <button type="button" className="btn" onClick={() => onLoadMore(column.id)}>
+              Retry
+            </button>
+          </div>
+        ) : page?.hasMore ? (
+          <button
+            type="button"
+            className="btn column-load-more"
+            onClick={() => onLoadMore(column.id)}
+          >
+            Load more
+          </button>
+        ) : (column.loadedCount ?? tasks.length) > 0 && column.taskCount > tasks.length ? (
+          <p className="column-page-state">End of loaded tasks.</p>
         ) : null}
       </div>
     </section>

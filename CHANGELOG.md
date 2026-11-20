@@ -10,6 +10,9 @@
 - Stacked the delete confirmation above the task details dialog, keeping details visible and inert until the delete is confirmed.
 - Added click-to-edit text fields, debounced autosave for task and checklist changes, a visible save-status label, Delete/Voltar-only actions and conflict reload.
 - Added concurrency coverage for simultaneous task updates, checklist changes and external board-file edits.
+- Added per-column lazy pagination with a first page of 20 tasks, infinite scroll and a Load more fallback.
+- Added a derived, self-repairing `.ikanban/.index/` to page task files by `(position, taskId)` without reading every YAML.
+- Added `task/page`, per-column revisions, reset on external changes, and full-board validation separate from first-page validation.
 - Moved task deletion into the task dialog with the existing confirmation flow.
 - Added icons and distinct colors to the dialog Save/Create, Cancel and Delete actions.
 

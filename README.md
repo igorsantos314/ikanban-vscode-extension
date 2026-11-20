@@ -96,7 +96,7 @@ The same skill file is useful to humans who want to edit the board by hand or wr
 
 ### Columns
 
-Use **+ Add column** to create a column. The column ID is derived from the title (lowercase letters, digits and hyphens), and the column directory uses that ID. Renaming a column changes only its title and never its directory or task IDs. Use the column header actions to edit the title/color, move the column left or right, or delete it.
+Use **+ Add column** to create a column. The column ID is derived from the title (lowercase letters, digits and hyphens), and the column directory uses that ID. Renaming a column changes only its title and never its directory or task IDs. Drag the column header to reorder columns; the rest of the column remains reserved for dragging tasks. A focused header can be moved with `Alt+←/→`. Use the header actions to edit the title/color or delete the column.
 
 A column can only be deleted when it contains no task files. The final remaining column cannot be deleted. Both cases produce an explanatory message.
 
@@ -110,9 +110,11 @@ Use the **Expanded** / **Compact** control in the toolbar to switch card density
 
 A task can have an optional deadline with date and time. In the task dialog, fill the masked **DD/MM/AAAA** and **HH:MM** fields; separators are inserted automatically and the form moves from the date to the time field when the date is complete. Both fields are required when a deadline is set, and **Clear deadline** removes it. The card shows the deadline in your local timezone and marks an overdue deadline.
 
-When an existing task is open, the dialog shows read-only **Created** and **Last updated** timestamps and a **Delete task** action. The creation time never changes; the last-updated time is refreshed after every successful edit, move, reorder or checklist change.
+When an existing task is open, text fields start read-only. Click a field (or focus it and press `Enter`/`Space`) to enable editing; it stays editable until the dialog closes. Changes save automatically: text is debounced shortly after typing stops, while column, priority, tag, deadline and checklist toggles are saved immediately. The dialog states this at the top and shows saving, saved, failed or conflict status.
 
-Deleting a task is available from the task dialog and asks for confirmation. It removes only that task's YAML file.
+The dialog footer has only **Delete task** for existing tasks and **Voltar**. Voltar flushes any pending save before closing. If an autosave fails or conflicts with a newer external version, the local draft stays visible, the conflict is shown and **Reload** replaces the draft with the persisted task. The creation time never changes; the last-updated time is refreshed after every successful edit, move, reorder or checklist change.
+
+Deleting a task is available from the task dialog and asks for confirmation. The confirmation appears above the task details, which stay visible and inactive until you cancel or confirm. A successful delete removes only that task's YAML file.
 
 ### Tags
 

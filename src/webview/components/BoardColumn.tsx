@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { useDroppable } from '@dnd-kit/core';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { ColumnView, TaskView } from '../../shared/board';
 import type { CardLayout } from '../cardLayout';
@@ -10,33 +10,36 @@ export function BoardColumn({
   tasks,
   cardLayout,
   isDropTarget,
-  canMoveLeft,
-  canMoveRight,
   onAddTask,
   onEditTask,
   onKeyboardMoveTask,
+  onReorderColumn,
   onEditColumn,
   onDeleteColumn,
-  onMoveColumnLeft,
-  onMoveColumnRight,
   dragDisabled,
 }: {
   column: ColumnView;
   tasks: readonly TaskView[];
   cardLayout: CardLayout;
   isDropTarget?: boolean;
-  canMoveLeft: boolean;
-  canMoveRight: boolean;
   onAddTask(column: ColumnView): void;
   onEditTask(task: TaskView): void;
   onKeyboardMoveTask(task: TaskView, direction: KeyboardMoveDirection): void;
+  onReorderColumn(column: ColumnView, direction: -1 | 1): void;
   onEditColumn(column: ColumnView): void;
   onDeleteColumn(column: ColumnView): void;
-  onMoveColumnLeft(column: ColumnView): void;
-  onMoveColumnRight(column: ColumnView): void;
   dragDisabled?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `column:${column.id}` });
+  const {
+    listeners,
+    setNodeRef: setHeaderRef,
+    isDragging: isHeaderDragging,
+  } = useDraggable({
+    id: `column-drag:${column.id}`,
+    data: { kind: 'column', columnId: column.id },
+    disabled: dragDisabled,
+  });
 
   return (
     <section
@@ -45,7 +48,27 @@ export function BoardColumn({
       style={{ '--column-color': column.color } as CSSProperties}
       aria-label={`${column.title} column`}
     >
-      <header className="column-header">
+      <header
+        ref={setHeaderRef}
+        className={`column-header ${isHeaderDragging ? 'column-header-dragging' : ''}`}
+        tabIndex={0}
+        aria-label={`${column.title} column header`}
+        aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
+        title="Drag the header to reorder. Alt+Arrow moves the column."
+        onKeyDown={(event) => {
+          if (!event.altKey) {
+            return;
+          }
+          if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            onReorderColumn(column, -1);
+          } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            onReorderColumn(column, 1);
+          }
+        }}
+        {...listeners}
+      >
         <div className="column-identity">
           <span className="column-dot" aria-hidden="true" />
           <h2 className="column-title">{column.title}</h2>
@@ -56,25 +79,10 @@ export function BoardColumn({
             {tasks.length}
           </span>
         </div>
-        <div className="column-actions">
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={`Move ${column.title} column left`}
-            disabled={!canMoveLeft}
-            onClick={() => onMoveColumnLeft(column)}
-          >
-            ‹
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={`Move ${column.title} column right`}
-            disabled={!canMoveRight}
-            onClick={() => onMoveColumnRight(column)}
-          >
-            ›
-          </button>
+        <div
+          className="column-actions"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
           <button
             type="button"
             className="icon-button"
@@ -123,6 +131,30 @@ export function BoardColumn({
           <p className="column-empty">No tasks yet</p>
         ) : null}
       </div>
+    </section>
+  );
+}
+
+export function ColumnOverlay({
+  column,
+  taskCount,
+}: {
+  column: ColumnView;
+  taskCount: number;
+}) {
+  return (
+    <section
+      className="board-column column-overlay-content"
+      style={{ '--column-color': column.color } as CSSProperties}
+      aria-hidden="true"
+    >
+      <header className="column-header">
+        <div className="column-identity">
+          <span className="column-dot" aria-hidden="true" />
+          <h2 className="column-title">{column.title}</h2>
+          <span className="column-count">{taskCount}</span>
+        </div>
+      </header>
     </section>
   );
 }

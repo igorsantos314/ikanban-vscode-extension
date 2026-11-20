@@ -205,6 +205,22 @@ textarea:focus-visible,
   gap: 8px;
   border-bottom: 1px solid var(--ikanban-border);
   padding: 10px 12px;
+  cursor: grab;
+}
+
+.column-header:active {
+  cursor: grabbing;
+}
+
+.column-header-dragging {
+  opacity: 0.6;
+}
+
+.column-overlay-content {
+  box-shadow: var(--ikanban-shadow-dialog);
+  cursor: grabbing;
+  transform: rotate(0.6deg);
+  will-change: transform;
 }
 
 .column-identity {
@@ -492,6 +508,20 @@ textarea:focus-visible,
 
 .input[aria-invalid="true"] {
   border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+}
+
+.input-click-to-edit {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+  cursor: pointer;
+}
+
+.input-click-to-edit:hover {
+  border-color: var(--ikanban-border);
+}
+
+.input-click-to-edit:focus {
+  border-color: var(--ikanban-focus);
 }
 
 .error-text {
@@ -816,6 +846,10 @@ textarea:focus-visible,
   backdrop-filter: blur(2px);
 }
 
+.modal-backdrop-stacked {
+  z-index: 60;
+}
+
 .modal-panel {
   display: flex;
   max-height: 90vh;
@@ -881,6 +915,38 @@ textarea:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.dialog-autosave {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  border: 1px solid var(--ikanban-border);
+  border-radius: var(--ikanban-radius-md);
+  background: var(--ikanban-inset);
+  padding: 7px 10px;
+  color: var(--ikanban-muted);
+  font-size: 11px;
+}
+
+.dialog-autosave-saving {
+  border-color: color-mix(in srgb, var(--ikanban-focus) 45%, transparent);
+  color: var(--vscode-foreground);
+}
+
+.dialog-autosave-saved {
+  border-color: color-mix(in srgb, var(--vscode-charts-green, #4ade80) 45%, transparent);
+}
+
+.dialog-autosave-error,
+.dialog-autosave-conflict {
+  border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 55%, transparent);
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.btn-back {
+  color: var(--vscode-foreground);
 }
 
 .dialog-section {

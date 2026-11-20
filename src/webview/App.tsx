@@ -6,8 +6,11 @@ import {
   closestCorners,
   useSensor,
   useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from '@dnd-kit/core';
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { BoardSnapshot, ColumnView, TaskView } from '../shared/board';
 import type { BoardPushMessage } from '../shared/protocol';
 import {
@@ -21,12 +24,12 @@ import {
   writeCardLayout,
   type CardLayout,
 } from './cardLayout';
-import { BoardColumn } from './components/BoardColumn';
+import { BoardColumn, ColumnOverlay } from './components/BoardColumn';
 import { BoardHeader } from './components/BoardHeader';
 import { ColumnDialog, type ColumnFormValues } from './components/ColumnDialog';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { TaskCardOverlay, type KeyboardMoveDirection } from './components/TaskCard';
-import { TaskDialog, type TaskDialogPayload } from './components/TaskDialog';
+import { TaskDialog, type TaskDialogPayload, type TaskDialogTaskRef } from './components/TaskDialog';
 import { ValidationPanel } from './components/ValidationPanel';
 import {
   boardReducer,
@@ -35,12 +38,14 @@ import {
   tasksForColumn,
 } from './state/boardState';
 import { useDragPreview } from './useDragPreview';
+import { useColumnDrag } from './useColumnDrag';
 
 export function App({ client }: { client?: BoardClientLike }) {
   const ownedClient = useMemo(() => (client ? undefined : createWebviewBoardClient()), [client]);
   const boardClient = client ?? ownedClient;
   const [state, dispatch] = useReducer(boardReducer, initialBoardState);
   const [moveInProgress, setMoveInProgress] = useState(false);
+  const deletedTaskIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (!boardClient) {
@@ -182,44 +187,69 @@ export function App({ client }: { client?: BoardClientLike }) {
     }
   }, [applySnapshot, boardClient, reportError]);
 
-  const saveTask = async (payload: TaskDialogPayload) => {
-    if (!boardClient || !state.taskDialog) {
-      return;
-    }
-    const target = state.taskDialog;
-    if (target.mode === 'edit') {
-      const updated = await boardClient.request<TaskView>('task/update', {
-        taskId: target.task.id,
-        columnId: payload.columnId,
-        expectedRevision: target.task.revision,
-        ...taskPayload(payload),
-      });
-      dispatch({ type: 'upsert-task', task: updated });
-    } else {
-      const created = await boardClient.request<TaskView>('task/create', {
-        columnId: payload.columnId,
-        ...taskPayload(payload),
-      });
-      dispatch({ type: 'upsert-task', task: created });
-    }
-    dispatch({ type: 'task-dialog', target: null });
-  };
+  const autosaveTask = useCallback(
+    async (payload: TaskDialogPayload, current: TaskDialogTaskRef | null) => {
+      if (!boardClient) {
+        throw new Error('The board client is unavailable.');
+      }
+      if (current && deletedTaskIdsRef.current.has(current.id)) {
+        throw new Error('This task was deleted.');
+      }
+      const saved = current
+        ? await boardClient.request<TaskView>('task/update', {
+            taskId: current.id,
+            columnId: payload.columnId,
+            expectedRevision: current.revision,
+            ...taskPayload(payload),
+          })
+        : await boardClient.request<TaskView>('task/create', {
+            columnId: payload.columnId,
+            ...taskPayload(payload),
+          });
+      if (deletedTaskIdsRef.current.has(saved.id)) {
+        throw new Error('This task was deleted.');
+      }
+      dispatch({ type: 'upsert-task', task: saved });
+      return saved;
+    },
+    [boardClient],
+  );
+
+  const reloadTask = useCallback(
+    async (taskId: string) => {
+      if (!boardClient) {
+        throw new Error('The board client is unavailable.');
+      }
+      const next = await boardClient.request<BoardSnapshot>('board/load', {});
+      applySnapshot(next);
+      const reloaded = next.tasks.find((task) => task.id === taskId);
+      if (!reloaded) {
+        throw new Error('This task no longer exists on the board.');
+      }
+      return reloaded;
+    },
+    [applySnapshot, boardClient],
+  );
 
   const deleteTask = async (task: TaskView) => {
     if (!boardClient) {
       return;
     }
+    const latest = state.snapshot?.tasks.find((entry) => entry.id === task.id) ?? task;
     dispatch({ type: 'busy', busy: true });
     try {
       await boardClient.request('task/delete', {
-        taskId: task.id,
-        columnId: task.columnId,
-        expectedRevision: task.revision,
+        taskId: latest.id,
+        columnId: latest.columnId,
+        expectedRevision: latest.revision,
       });
-      dispatch({ type: 'remove-task', taskId: task.id });
+      deletedTaskIdsRef.current.add(latest.id);
+      dispatch({ type: 'remove-task', taskId: latest.id });
       dispatch({ type: 'confirm', target: null });
+      dispatch({ type: 'task-dialog', target: null });
     } catch (error) {
       reportError(error);
+      dispatch({ type: 'confirm', target: null });
     } finally {
       dispatch({ type: 'busy', busy: false });
     }
@@ -277,26 +307,33 @@ export function App({ client }: { client?: BoardClientLike }) {
     }
   };
 
-  const moveColumn = async (column: ColumnView, direction: -1 | 1) => {
-    if (!boardClient || !snapshot?.board) {
-      return;
-    }
-    const ids = snapshot.columns.map((entry) => entry.id);
+  const reorderColumns = useCallback(
+    async (columnIds: string[]) => {
+      if (!boardClient || !snapshot?.board) {
+        return;
+      }
+      try {
+        const next = await boardClient.request<BoardSnapshot>('column/reorder', {
+          columnIds,
+          expectedBoardRevision: snapshot.board.revision,
+        });
+        applySnapshot(next);
+      } catch (error) {
+        reportError(error);
+      }
+    },
+    [applySnapshot, boardClient, reportError, snapshot],
+  );
+
+  const moveColumn = (column: ColumnView, direction: -1 | 1) => {
+    const ids = columns.map((entry) => entry.id);
     const index = ids.indexOf(column.id);
     const target = index + direction;
     if (target < 0 || target >= ids.length) {
       return;
     }
     [ids[index], ids[target]] = [ids[target]!, ids[index]!];
-    try {
-      const next = await boardClient.request<BoardSnapshot>('column/reorder', {
-        columnIds: ids,
-        expectedBoardRevision: snapshot.board.revision,
-      });
-      applySnapshot(next);
-    } catch (error) {
-      reportError(error);
-    }
+    void reorderColumns(ids);
   };
 
   const submitColumn = async (values: ColumnFormValues) => {
@@ -352,11 +389,49 @@ export function App({ client }: { client?: BoardClientLike }) {
     dragPreview,
     draggedTask,
     tasksFor,
-    handleDragStart,
-    handleDragOver,
-    handleDragEnd,
-    handleDragCancel,
+    handleDragStart: handleTaskDragStart,
+    handleDragOver: handleTaskDragOver,
+    handleDragEnd: handleTaskDragEnd,
+    handleDragCancel: handleTaskDragCancel,
   } = useDragPreview({ columns, tasks, moveTask });
+
+  const {
+    previewColumns,
+    draggedColumn,
+    handleDragStart: handleColumnDragStart,
+    handleDragOver: handleColumnDragOver,
+    handleDragEnd: handleColumnDragEnd,
+    handleDragCancel: handleColumnDragCancel,
+  } = useColumnDrag({ columns, tasks, reorderColumns });
+
+  const handleDragStart = (event: DragStartEvent) => {
+    if (event.active.data.current?.kind === 'column') {
+      handleColumnDragStart(event);
+    } else {
+      handleTaskDragStart(event);
+    }
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    if (event.active.data.current?.kind === 'column') {
+      handleColumnDragOver(event);
+    } else {
+      handleTaskDragOver(event);
+    }
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    if (event.active.data.current?.kind === 'column') {
+      handleColumnDragEnd(event);
+    } else {
+      handleTaskDragEnd(event);
+    }
+  };
+
+  const handleDragCancel = () => {
+    handleTaskDragCancel();
+    handleColumnDragCancel();
+  };
 
   const draggedColumnId = dragPreview
     ? locateTaskInPreview(dragPreview.order, dragPreview.activeId)?.columnId
@@ -428,15 +503,13 @@ export function App({ client }: { client?: BoardClientLike }) {
             onDragCancel={handleDragCancel}
           >
             <div className="board-scroll flex min-h-0 flex-1 items-stretch overflow-x-auto">
-              {snapshot.columns.map((column, index) => (
+              {previewColumns.map((column) => (
                 <BoardColumn
                   key={column.id}
                   column={column}
                   tasks={tasksFor(column.id)}
                   cardLayout={activeCardLayout}
                   isDropTarget={draggedColumnId === column.id}
-                  canMoveLeft={index > 0}
-                  canMoveRight={index < snapshot.columns.length - 1}
                   dragDisabled={state.busy || moveInProgress}
                   onAddTask={(target) =>
                     dispatch({
@@ -448,6 +521,7 @@ export function App({ client }: { client?: BoardClientLike }) {
                     dispatch({ type: 'task-dialog', target: { mode: 'edit', task } })
                   }
                   onKeyboardMoveTask={handleKeyboardMove}
+                  onReorderColumn={(target, direction) => moveColumn(target, direction)}
                   onEditColumn={(target) =>
                     dispatch({
                       type: 'column-dialog',
@@ -457,8 +531,6 @@ export function App({ client }: { client?: BoardClientLike }) {
                   onDeleteColumn={(target) =>
                     dispatch({ type: 'confirm', target: { kind: 'column', column: target } })
                   }
-                  onMoveColumnLeft={(target) => void moveColumn(target, -1)}
-                  onMoveColumnRight={(target) => void moveColumn(target, 1)}
                 />
               ))}
             </div>
@@ -468,7 +540,12 @@ export function App({ client }: { client?: BoardClientLike }) {
                 easing: 'cubic-bezier(0.2, 0, 0, 1)',
               }}
             >
-              {draggedTask ? (
+              {draggedColumn ? (
+                <ColumnOverlay
+                  column={draggedColumn}
+                  taskCount={tasks.filter((task) => task.columnId === draggedColumn.id).length}
+                />
+              ) : draggedTask ? (
                 <TaskCardOverlay task={draggedTask} cardLayout={activeCardLayout} />
               ) : null}
             </DragOverlay>
@@ -483,11 +560,12 @@ export function App({ client }: { client?: BoardClientLike }) {
             ? { initialColumnId: state.taskDialog.columnId }
             : {})}
           columns={snapshot.columns}
-          onSave={saveTask}
+          onAutosave={autosaveTask}
+          onReload={reloadTask}
           onDelete={(task) => {
-            dispatch({ type: 'task-dialog', target: null });
             dispatch({ type: 'confirm', target: { kind: 'task', task } });
           }}
+          inert={state.confirm?.kind === 'task'}
           onClose={() => dispatch({ type: 'task-dialog', target: null })}
         />
       ) : null}
@@ -512,6 +590,7 @@ export function App({ client }: { client?: BoardClientLike }) {
           }
           confirmLabel="Delete"
           busy={state.busy}
+          stacked={state.confirm.kind === 'task' && state.taskDialog !== null}
           onCancel={() => dispatch({ type: 'confirm', target: null })}
           onConfirm={() => {
             if (state.confirm?.kind === 'task') {

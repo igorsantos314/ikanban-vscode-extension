@@ -15,6 +15,7 @@ import type { ValidationIssue } from '../shared/validationIssue';
 import { deriveColumnId } from '../domain/columnId';
 import { normalizeDueAt } from '../domain/deadline';
 import {
+  ConflictError,
   DuplicateEntityError,
   EntityNotFoundError,
   StorageError,
@@ -458,9 +459,7 @@ export class BoardService {
       const title = normalizeRequiredText(input.title, 'Column title');
       const color = this.validateColor(input.color);
       if (input.expectedBoardRevision !== revision) {
-        throw new ValidationError(
-          'The board configuration changed outside iKanban. Refresh before saving.',
-        );
+        throw new ConflictError('Board');
       }
       const id = deriveColumnId(title);
       if (config.columnIds.includes(id) || (await this.board.columnExists(id))) {
@@ -502,9 +501,7 @@ export class BoardService {
     return this.queue.run(async () => {
       const { config, revision } = await this.requireBoard();
       if (input.expectedBoardRevision !== revision) {
-        throw new ValidationError(
-          'The board configuration changed outside iKanban. Refresh before saving.',
-        );
+        throw new ConflictError('Board');
       }
       const column = await this.requireColumn(input.id);
       if (config.columnIds.length === 1) {
@@ -539,9 +536,7 @@ export class BoardService {
     return this.queue.run(async () => {
       const { config, revision } = await this.requireBoard();
       if (input.expectedBoardRevision !== revision) {
-        throw new ValidationError(
-          'The board configuration changed outside iKanban. Refresh before saving.',
-        );
+        throw new ConflictError('Board');
       }
       const requested = input.columnIds;
       const unique = new Set(requested);
@@ -704,6 +699,9 @@ export class BoardService {
   createChecklist(input: CreateChecklistInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist: Checklist = {
         id: this.ids.next(),
         title: normalizeRequiredText(input.title, 'Checklist title'),
@@ -720,6 +718,9 @@ export class BoardService {
   updateChecklist(input: UpdateChecklistInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist = task.checklists.find((entry) => entry.id === input.checklistId);
       if (!checklist) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
@@ -740,6 +741,9 @@ export class BoardService {
   deleteChecklist(input: DeleteChecklistInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       if (!task.checklists.some((entry) => entry.id === input.checklistId)) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
       }
@@ -756,6 +760,9 @@ export class BoardService {
   createChecklistItem(input: CreateChecklistItemInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist = task.checklists.find((entry) => entry.id === input.checklistId);
       if (!checklist) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
@@ -783,6 +790,9 @@ export class BoardService {
   updateChecklistItem(input: UpdateChecklistItemInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist = task.checklists.find((entry) => entry.id === input.checklistId);
       if (!checklist) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
@@ -823,6 +833,9 @@ export class BoardService {
   deleteChecklistItem(input: DeleteChecklistItemInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist = task.checklists.find((entry) => entry.id === input.checklistId);
       if (!checklist) {
         throw new EntityNotFoundError('Checklist', input.checklistId);
@@ -850,6 +863,9 @@ export class BoardService {
   toggleChecklistItem(input: ToggleChecklistItemInput): Promise<TaskView> {
     return this.queue.run(async () => {
       const { task, revision } = await this.readTaskOrThrow(input.columnId, input.taskId);
+      if (revision !== input.expectedRevision) {
+        throw new ConflictError('Task');
+      }
       const checklist = task.checklists.find((entry) => entry.id === input.checklistId);
       if (!checklist) {
         throw new EntityNotFoundError('Checklist', input.checklistId);

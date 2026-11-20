@@ -2,5 +2,6 @@ version: 1
 name: ikanban
 columns:
   - backlog
+  - to-do
   - in-progress
   - done

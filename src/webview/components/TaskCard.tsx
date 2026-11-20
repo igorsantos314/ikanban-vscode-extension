@@ -185,6 +185,7 @@ export function TaskCard({
 }) {
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
+    data: { kind: 'task' },
     disabled: dragDisabled,
   });
 

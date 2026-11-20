@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import type { ChecklistDraftState } from './checklistDraft';
 import { newClientId } from './checklistDraft';
+import { ClickToEditInput } from './ClickToEditField';
 
 export function ChecklistEditor({
   checklists,
@@ -10,11 +12,18 @@ export function ChecklistEditor({
   errors: Record<string, string>;
   onChange(next: ChecklistDraftState[]): void;
 }) {
+  const [editableIds, setEditableIds] = useState<Set<string>>(() => new Set());
+  const markEditable = (id: string) =>
+    setEditableIds((current) => {
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+
   const addChecklist = () => {
-    onChange([
-      ...checklists,
-      { id: newClientId(), title: '', items: [] },
-    ]);
+    const id = newClientId();
+    markEditable(id);
+    onChange([...checklists, { id, title: '', items: [] }]);
   };
 
   const updateChecklist = (id: string, update: Partial<ChecklistDraftState>) => {
@@ -43,14 +52,16 @@ export function ChecklistEditor({
             aria-label={`Checklist ${checklistIndex + 1}`}
           >
             <div className="checklist-header">
-              <input
+              <ClickToEditInput
                 className="input flex-1"
                 value={checklist.title}
+                onValueChange={(value) => updateChecklist(checklist.id, { title: value })}
                 placeholder="Checklist title"
                 aria-label={`Checklist ${checklistIndex + 1} title`}
                 aria-invalid={Boolean(titleError)}
                 aria-describedby={titleError ? `checklist-title-${checklist.id}` : undefined}
-                onChange={(event) => updateChecklist(checklist.id, { title: event.target.value })}
+                initiallyEditable={editableIds.has(checklist.id)}
+                reveal={Boolean(titleError)}
               />
               <span className="checklist-progress" aria-label="Checklist progress">
                 {completed}/{checklist.items.length}
@@ -91,22 +102,24 @@ export function ChecklistEditor({
                           })
                         }
                       />
-                      <input
+                      <ClickToEditInput
                         className="input flex-1"
                         value={item.text}
-                        placeholder="Item text"
-                        aria-label={`Checklist ${checklistIndex + 1} item ${itemIndex + 1} text`}
-                        aria-invalid={Boolean(itemError)}
-                        aria-describedby={itemError ? `item-error-${item.id}` : undefined}
-                        onChange={(event) =>
+                        onValueChange={(value) =>
                           updateChecklist(checklist.id, {
                             items: checklist.items.map((candidate) =>
                               candidate.id === item.id
-                                ? { ...candidate, text: event.target.value }
+                                ? { ...candidate, text: value }
                                 : candidate,
                             ),
                           })
                         }
+                        placeholder="Item text"
+                        aria-label={`Checklist ${checklistIndex + 1} item ${itemIndex + 1} text`}
+                        aria-invalid={Boolean(itemError)}
+                        aria-describedby={itemError ? `item-error-${item.id}` : undefined}
+                        initiallyEditable={editableIds.has(item.id)}
+                        reveal={Boolean(itemError)}
                       />
                       <button
                         type="button"
@@ -134,14 +147,16 @@ export function ChecklistEditor({
             <button
               type="button"
               className="btn self-start"
-              onClick={() =>
+              onClick={() => {
+                const id = newClientId();
+                markEditable(id);
                 updateChecklist(checklist.id, {
                   items: [
                     ...checklist.items,
-                    { id: newClientId(), text: '', completed: false },
+                    { id, text: '', completed: false },
                   ],
-                })
-              }
+                });
+              }}
             >
               + Add item
             </button>

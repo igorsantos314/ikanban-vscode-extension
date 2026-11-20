@@ -6,6 +6,10 @@
 - Added an optional task deadline with masked `DD/MM/AAAA` and `HH:MM` fields, stored as one ISO 8601 UTC `dueAt` timestamp and shown in local time.
 - Made the whole card clickable to open and draggable to move, removing the drag handle and per-card arrow/delete buttons.
 - Added keyboard shortcuts: `Enter` opens a card; `Alt+Arrow` moves it between columns or positions.
+- Added header drag-and-drop for reordering columns, with column preview, overlay and `Alt+Arrow` keyboard reordering; removed the column arrow buttons.
+- Stacked the delete confirmation above the task details dialog, keeping details visible and inert until the delete is confirmed.
+- Added click-to-edit text fields, debounced autosave for task and checklist changes, a visible save-status label, Delete/Voltar-only actions and conflict reload.
+- Added concurrency coverage for simultaneous task updates, checklist changes and external board-file edits.
 - Moved task deletion into the task dialog with the existing confirmation flow.
 - Added icons and distinct colors to the dialog Save/Create, Cancel and Delete actions.
 

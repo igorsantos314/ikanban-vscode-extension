@@ -346,18 +346,23 @@ describe('App', () => {
     await user.type(screen.getByLabelText('Title'), 'New task');
     await user.type(screen.getByLabelText('Description'), 'New description');
     await user.click(screen.getByRole('button', { name: /chore/i }));
-    await user.click(screen.getByRole('button', { name: 'Create task' }));
 
-    await screen.findByText('New task');
-    expect(request).toHaveBeenCalledWith(
-      'task/create',
-      expect.objectContaining({
-        columnId: 'backlog',
-        title: 'New task',
-        tags: ['chore'],
-      }),
+    await waitFor(
+      () =>
+        expect(request).toHaveBeenCalledWith(
+          'task/create',
+          expect.objectContaining({
+            columnId: 'backlog',
+            title: 'New task',
+          }),
+        ),
+      { timeout: 2000 },
     );
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.querySelector('.task-card-title')).toHaveTextContent('New task'),
+    );
+    await user.click(screen.getByRole('button', { name: /voltar/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('deletes a task after confirmation', async () => {
@@ -391,8 +396,139 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Open task Fix login' }));
     await user.click(screen.getByRole('button', { name: 'Delete task' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByText('Fix login')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Title')).toHaveValue('Fix login');
+    expect(screen.getByText('Fix login', { selector: '.task-card-title' })).toBeInTheDocument();
+  });
+
+  it('keeps the local draft and reloads on an autosave conflict', async () => {
+    const user = userEvent.setup();
+    const item = task();
+    const external = task({ title: 'External title', revision: 'external-rev' });
+    let loads = 0;
+    const { client } = fakeClient({
+      load: snapshot([item]),
+      onRequest: (type) => {
+        if (type === 'task/update') {
+          throw Object.assign(new Error('This task was modified outside iKanban.'), {
+            code: 'ConflictError',
+          });
+        }
+        if (type === 'board/load') {
+          loads += 1;
+          return loads > 1 ? snapshot([external]) : undefined;
+        }
+        return undefined;
+      },
+    });
+    render(<App client={client} />);
+    await screen.findByText('Fix login');
+    await user.click(screen.getByRole('button', { name: 'Open task Fix login' }));
+    const title = screen.getByLabelText('Title');
+    await user.click(title);
+    await user.type(title, ' local');
+
+    const reload = await screen.findByRole('button', { name: 'Reload' }, { timeout: 2000 });
+    expect(title).toHaveValue('Fix login local');
+    await user.click(reload);
+    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('External title'));
+  });
+
+  it('does not resurrect a task when an autosave resolves after deletion', async () => {
+    const user = userEvent.setup();
+    const item = task();
+    let releaseUpdate: ((task: TaskView) => void) | undefined;
+    const { client } = fakeClient({
+      load: snapshot([item]),
+      onRequest: (type) => {
+        if (type === 'task/update') {
+          return new Promise<TaskView>((resolve) => {
+            releaseUpdate = resolve;
+          });
+        }
+        if (type === 'task/delete') {
+          return { taskId: item.id };
+        }
+        return undefined;
+      },
+    });
+    render(<App client={client} />);
+    await screen.findByText('Fix login');
+    await user.click(screen.getByRole('button', { name: 'Open task Fix login' }));
+    const title = screen.getByLabelText('Title');
+    await user.click(title);
+    await user.type(title, ' edited');
+
+    await waitFor(() => expect(releaseUpdate).toBeTypeOf('function'), { timeout: 2000 });
+    await user.click(screen.getByRole('button', { name: 'Delete task' }));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="550e8400-e29b-41d4-a716-446655440000"]')).toBeNull(),
+    );
+
+    releaseUpdate?.({ ...item, title: 'edited', revision: 'late-rev' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector('[data-task-id="550e8400-e29b-41d4-a716-446655440000"]')).toBeNull();
+  });
+
+  it('keeps task details inert behind the delete confirmation', async () => {
+    const user = userEvent.setup();
+    const item = task();
+    const { client } = fakeClient({ load: snapshot([item]) });
+    render(<App client={client} />);
+    await screen.findByText('Fix login');
+    await user.click(screen.getByRole('button', { name: 'Open task Fix login' }));
+    await user.click(screen.getByRole('button', { name: 'Delete task' }));
+
+    expect(screen.getByText(/Delete “Fix login”/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Title')).toHaveValue('Fix login');
+    const panels = document.querySelectorAll('[role="dialog"]');
+    expect(panels).toHaveLength(2);
+    expect(panels[0]).toHaveAttribute('aria-hidden', 'true');
+    expect(panels[1]).not.toHaveAttribute('aria-hidden');
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText(/Delete “Fix login”/)).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Title')).toHaveValue('Fix login');
+  });
+
+  it('closes only the confirmation with Escape', async () => {
+    const user = userEvent.setup();
+    const item = task();
+    const { client } = fakeClient({ load: snapshot([item]) });
+    render(<App client={client} />);
+    await screen.findByText('Fix login');
+    await user.click(screen.getByRole('button', { name: 'Open task Fix login' }));
+    await user.click(screen.getByRole('button', { name: 'Delete task' }));
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByText(/Delete “Fix login”/)).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Title')).toHaveValue('Fix login');
+  });
+
+  it('keeps the details dialog open when delete fails', async () => {
+    const user = userEvent.setup();
+    const item = task();
+    const { client } = fakeClient({
+      load: snapshot([item]),
+      onRequest: (type) => {
+        if (type === 'task/delete') {
+          throw new Error('Delete failed.');
+        }
+        return undefined;
+      },
+    });
+    render(<App client={client} />);
+    await screen.findByText('Fix login');
+    await user.click(screen.getByRole('button', { name: 'Open task Fix login' }));
+    await user.click(screen.getByRole('button', { name: 'Delete task' }));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(await screen.findByText('Delete failed.')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Title')).toHaveValue('Fix login');
   });
 
   it('renders long unbroken titles without breaking the column layout', async () => {
@@ -453,7 +589,8 @@ describe('App', () => {
     const { client, request } = fakeClient({ load: snapshot() });
     render(<App client={client} />);
     await screen.findByText('My Project');
-    await user.click(screen.getByRole('button', { name: 'Move Backlog column right' }));
+    screen.getByLabelText('Backlog column header').focus();
+    await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
     expect(request).toHaveBeenCalledWith('column/reorder', {
       columnIds: ['done', 'backlog'],
       expectedBoardRevision: 'board-rev',

@@ -761,3 +761,117 @@ describe('deadline after move', () => {
     expect(cleared.dueAt).toBeUndefined();
   });
 });
+
+describe('concurrency safety', () => {
+  it('lets only one of two simultaneous task updates win', async () => {
+    const { service } = await setup();
+    const task = await service.createTask(taskInput({ title: 'Original' }));
+    const update = (title: string) =>
+      service.updateTask({
+        taskId: task.id,
+        columnId: 'backlog',
+        expectedRevision: task.revision,
+        title,
+        priority: 'medium',
+        tags: [],
+      });
+
+    const results = await Promise.allSettled([update('Winner A'), update('Winner B')]);
+    const fulfilled = results.filter((entry) => entry.status === 'fulfilled');
+    const rejected = results.filter((entry) => entry.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      code: 'ConflictError',
+    });
+
+    const snapshot = await service.loadBoard();
+    const persisted = snapshot.tasks.find((entry) => entry.id === task.id)!;
+    expect(['Winner A', 'Winner B']).toContain(persisted.title);
+  });
+
+  it('lets only one of two simultaneous checklist changes win', async () => {
+    const { service } = await setup();
+    const created = await service.createTask(
+      taskInput({
+        title: 'Checklist race',
+        checklists: [{ title: 'Steps', items: [{ text: 'One' }] }],
+      }),
+    );
+    const checklistId = created.checklists[0]!.id;
+    const itemId = created.checklists[0]!.items[0]!.id;
+
+    const results = await Promise.allSettled([
+      service.updateChecklist({
+        taskId: created.id,
+        columnId: 'backlog',
+        expectedRevision: created.revision,
+        checklistId,
+        title: 'Renamed',
+      }),
+      service.toggleChecklistItem({
+        taskId: created.id,
+        columnId: 'backlog',
+        expectedRevision: created.revision,
+        checklistId,
+        itemId,
+      }),
+    ]);
+    expect(results.filter((entry) => entry.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((entry) => entry.status === 'rejected')).toHaveLength(1);
+
+    const snapshot = await service.loadBoard();
+    const persisted = snapshot.tasks.find((entry) => entry.id === created.id)!;
+    expect(persisted.checklists).toHaveLength(1);
+    expect(persisted.checklists[0]!.items).toHaveLength(1);
+  });
+
+  it('rejects a board mutation after an external board.yaml change', async () => {
+    const { service, workspace } = await setup();
+    const before = await service.loadBoard();
+    const oldRevision = before.board!.revision;
+    const external = [
+      'version: 1',
+      'name: External board',
+      'columns:',
+      '  - backlog',
+      '  - in-progress',
+      '  - done',
+      '',
+    ].join('\n');
+    await writeBoard(workspace, external);
+
+    await expect(
+      service.reorderColumns({
+        columnIds: ['done', 'in-progress', 'backlog'],
+        expectedBoardRevision: oldRevision,
+      }),
+    ).rejects.toMatchObject({ code: 'ConflictError' });
+
+    const persisted = new TextDecoder().decode(
+      await workspace.fs.readFile(workspace.board.boardUri),
+    );
+    expect(persisted).toContain('name: External board');
+  });
+
+  it('lets only one of two simultaneous board revisions win', async () => {
+    const { service } = await setup();
+    const snapshot = await service.loadBoard();
+    const revision = snapshot.board!.revision;
+    const results = await Promise.allSettled([
+      service.reorderColumns({
+        columnIds: ['done', 'in-progress', 'backlog'],
+        expectedBoardRevision: revision,
+      }),
+      service.reorderColumns({
+        columnIds: ['in-progress', 'backlog', 'done'],
+        expectedBoardRevision: revision,
+      }),
+    ]);
+    expect(results.filter((entry) => entry.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((entry) => entry.status === 'rejected')).toHaveLength(1);
+
+    const after = await service.loadBoard();
+    expect(after.board!.columnIds).toHaveLength(3);
+  });
+});

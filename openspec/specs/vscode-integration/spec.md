@@ -8,12 +8,22 @@ Defines the VS Code surface of iKanban: commands, workspace selection, trust han
 
 ### Requirement: Command registration
 
-The extension SHALL register exactly the commands `ikanban.initialize`, `ikanban.open`, `ikanban.validate` and `ikanban.refresh`. The scaffold `ikanban.helloWorld` command SHALL be removed. Commands SHALL appear in the Command Palette with clear titles. Activation SHALL occur when one of the contributed commands is invoked or when a board webview needs to be restored.
+The extension SHALL register exactly the commands `ikanban.initialize`, `ikanban.open`, `ikanban.createTask`, `ikanban.validate`, `ikanban.refresh` and `ikanban.installAgentSkill`. The scaffold `ikanban.helloWorld` command SHALL be removed. Commands SHALL appear in the Command Palette with clear titles. Activation SHALL occur when one of the contributed commands is invoked or when a board webview needs to be restored.
 
 #### Scenario: Commands available
 
 - **WHEN** the extension is activated
-- **THEN** all four iKanban commands are registered and visible in the Command Palette
+- **THEN** all six iKanban commands are registered and visible in the Command Palette
+
+#### Scenario: AI skill command is available
+
+- **WHEN** the user searches the Command Palette for the iKanban skill installer
+- **THEN** `ikanban.installAgentSkill` is offered with a clear title and installs the portable skill when invoked
+
+#### Scenario: Create task command is available
+
+- **WHEN** the user searches the Command Palette for creating a task
+- **THEN** `iKanban: Create New Task` is offered and starts the task creation flow
 
 #### Scenario: Hello World removed
 
@@ -224,3 +234,208 @@ All registered commands, the webview panel, the filesystem watcher, the diagnost
 
 - **WHEN** the board panel is closed
 - **THEN** pending panel-specific timers are cleared and reopening starts from persisted state
+
+### Requirement: Activity Bar entry
+
+The extension SHALL contribute an iKanban view container to the VS Code Activity Bar and a single home view inside it. The entry SHALL be present after installation and SHALL NOT require running a command first. Selecting the entry SHALL activate the extension and resolve the home view. The home view SHALL NOT host an editable board; the board SHALL remain in the existing editor webview panel so there is only one authoritative board surface. The Activity Bar side is controlled by the user's VS Code layout settings, and the extension SHALL NOT attempt to override it.
+
+#### Scenario: Entry visible after installation
+
+- **WHEN** the extension is installed and enabled
+- **THEN** the iKanban icon is visible in the Activity Bar and selecting it shows the iKanban home view
+
+#### Scenario: View activates the extension
+
+- **WHEN** VS Code restarts with the iKanban home view visible and no iKanban command has run
+- **THEN** the extension activates, resolves the home view and registers its commands normally
+
+#### Scenario: Single board surface
+
+- **WHEN** the iKanban home view is visible in the sidebar
+- **THEN** no second editable board is rendered in the sidebar and the board panel remains the only editable board surface
+
+#### Scenario: User-controlled placement
+
+- **WHEN** the user places the Activity Bar on the left or on the right through VS Code settings
+- **THEN** the iKanban entry follows that placement without the extension changing the layout
+
+### Requirement: Sidebar fallback home
+
+The home view SHALL present concise usage content and actions for Open board, Initialize board and Validate board that invoke the existing commands. It SHALL adapt to the active light, dark and high-contrast themes, remain usable in a narrow sidebar, and render without executing scripts or loading remote content.
+
+#### Scenario: Actions use existing commands
+
+- **WHEN** the user activates Open, Initialize or Validate from the home view
+- **THEN** the corresponding existing iKanban command runs with its normal workspace, trust and error behavior
+
+#### Scenario: Narrow sidebar
+
+- **WHEN** the sidebar is narrow
+- **THEN** the home content wraps without horizontal overflow and all actions remain reachable
+
+#### Scenario: Theme adaptation
+
+- **WHEN** the active theme changes
+- **THEN** the home view uses theme-provided colors and remains readable
+
+#### Scenario: Static and safe content
+
+- **WHEN** the home view is rendered
+- **THEN** its content security policy blocks scripts and remote resources, and no board or task text is injected as untrusted HTML
+
+### Requirement: Supported VS Code baseline
+
+The extension manifest SHALL declare `engines.vscode` at the supported baseline of `^1.147.0`, and the development `@types/vscode` version SHALL NOT exceed that baseline. The packaged VSIX SHALL install successfully on VS Code 1.147.0.
+
+#### Scenario: Install on the current stable release
+
+- **WHEN** the packaged VSIX is installed on VS Code 1.147.0
+- **THEN** installation succeeds and the extension reports version 0.1.0 with the expected contributions
+
+#### Scenario: Packaging validation
+
+- **WHEN** the project is packaged with `vsce`
+- **THEN** the manifest reports `engines.vscode` as `^1.147.0` and the types-versus-engine compatibility check passes
+
+### Requirement: Create task command
+
+The extension SHALL expose the command `ikanban.createTask` with the title `Create New Task`. The command SHALL use the same workspace-folder selection rules as the other board commands, SHALL require a trusted workspace, and SHALL load the selected board before prompting. It SHALL ask for a non-empty task title and an existing target column; when the board has only one column it SHALL use that column without asking. A cancelled prompt SHALL abort without writing. On confirmation it SHALL create a task in the chosen column with an empty description, priority `medium`, no tags and no checklists, append it after the existing tasks, and open or reveal the board panel so the user can add details in the task dialog. When the board is not initialized or has no columns, the command SHALL report an actionable error and write nothing.
+
+#### Scenario: Create a task from the Command Palette
+
+- **WHEN** the user runs `ikanban.createTask` in a trusted initialized workspace, enters a title and selects a column
+- **THEN** the new task is persisted in that column with the default fields and the board opens or is revealed showing it
+
+#### Scenario: Single-column board
+
+- **WHEN** the selected board has exactly one column
+- **THEN** the command uses that column without showing a column picker
+
+#### Scenario: Title is required
+
+- **WHEN** the user submits a blank or whitespace-only title
+- **THEN** the input reports that the title is required and no task is created until a valid title is provided
+
+#### Scenario: Cancel aborts creation
+
+- **WHEN** the user cancels the title or column prompt
+- **THEN** no task file is written and the board is unchanged
+
+#### Scenario: Board is not initialized
+
+- **WHEN** the user runs the command in a workspace without a board
+- **THEN** the command reports that the board must be initialized first and writes no task file
+
+#### Scenario: Untrusted workspace
+
+- **WHEN** the user runs the command in an untrusted workspace
+- **THEN** the command reports that a trusted workspace is required and writes no task file
+
+#### Scenario: Multiple workspace folders
+
+- **WHEN** more than one workspace folder is open
+- **THEN** the command follows the same folder selection and remembered-choice rules as the other iKanban commands
+
+#### Scenario: Creation failure
+
+- **WHEN** task persistence fails
+- **THEN** the command reports an actionable error, leaves the board unchanged and keeps the extension usable
+
+### Requirement: State-aware Activity Bar home view
+
+The Activity Bar home view SHALL act as a launcher and status surface. It SHALL NOT redirect to or open the board panel merely because the view is displayed or becomes visible. When the view is resolved or becomes visible, the extension SHALL determine the selected workspace folder and whether that folder contains an iKanban board, and SHALL render actions that match that state. Simply displaying the home view SHALL NOT create, open or modify any board file.
+
+When the selected folder has an initialized board, the view SHALL offer **Open board** and **Validate board** and SHALL NOT offer **Initialize board**. When the selected folder has no board, the view SHALL offer **Initialize board** and SHALL NOT present opening an empty board as the primary action. When no workspace folder is available, the view SHALL explain that a workspace folder is required and SHALL NOT offer actions that write. In an untrusted workspace, the view SHALL explain that a trusted workspace is required before initialization or skill installation.
+
+The view SHALL re-evaluate its state after initialization completes, after skill installation or update, when the view is refreshed and when the board is created or removed outside the extension. State-detection failures SHALL be reported without breaking the view, and later state refreshes SHALL remain possible.
+
+#### Scenario: Initialized board
+
+- **WHEN** the home view is shown for a workspace that already contains `.ikanban/board.yaml`
+- **THEN** it offers Open board and Validate board, shows no Initialize board action, and does not open the board automatically
+
+#### Scenario: Board not initialized
+
+- **WHEN** the home view is shown for a workspace without a board
+- **THEN** it offers Initialize board, does not present Open board as the primary action, and writes no files
+
+#### Scenario: Initialize updates the panel
+
+- **WHEN** the user initializes the board from the home view and initialization succeeds
+- **THEN** the view refreshes to the initialized state and offers Open board instead of Initialize board
+
+#### Scenario: External board creation
+
+- **WHEN** a board is created or removed in the workspace while the extension is running
+- **THEN** refreshing the view reflects the new board state
+
+#### Scenario: No workspace folder
+
+- **WHEN** the home view is shown with no workspace folder open
+- **THEN** it explains that a workspace folder is required and offers no write action
+
+#### Scenario: Untrusted workspace
+
+- **WHEN** the home view is shown in an untrusted workspace
+- **THEN** it explains that a trusted workspace is required for initialization and skill installation without writing any file
+
+#### Scenario: State detection fails
+
+- **WHEN** the extension cannot determine the board state
+- **THEN** the view reports the failure, remains usable and does not display the failed state as current
+
+#### Scenario: Narrow and themed presentation
+
+- **WHEN** the home view is displayed in a narrow sidebar or with any VS Code theme
+- **THEN** its content wraps without horizontal overflow, uses theme colors and loads no scripts or remote resources
+
+### Requirement: Skill status and explicit update
+
+The extension SHALL determine the state of the workspace agent skill by comparing `<workspace>/skills/ikanban/SKILL.md` with the skill bundled in the installed extension. The home view SHALL present **Install AI skill** when the skill is missing, **Update AI skill** when the installed skill differs from the bundled version, and an up-to-date indication when both match. Status detection SHALL NOT modify any file.
+
+Updating SHALL be explicitly triggered by the user. When the user activates the update action, the extension SHALL replace the installed skill with the bundled version, create or replace the managed block in `AGENTS.md` while preserving all content outside that block, and report the paths written. The action SHALL be offered again after an extension update changes the bundled skill, and it SHALL follow the same workspace selection, trust and error-handling rules as the existing install command.
+
+#### Scenario: Skill missing
+
+- **WHEN** the selected workspace has no `skills/ikanban/SKILL.md`
+- **THEN** the home view offers Install AI skill and writes nothing until the user activates it
+
+#### Scenario: Skill current
+
+- **WHEN** the installed skill matches the bundled skill
+- **THEN** the home view indicates that the skill is up to date and does not offer an update action
+
+#### Scenario: Extension update changes the skill
+
+- **WHEN** the extension is updated with a different bundled skill and the workspace skill is outdated
+- **THEN** the home view offers Update AI skill without rewriting the workspace automatically
+
+#### Scenario: User updates the skill
+
+- **WHEN** the user activates Update AI skill
+- **THEN** `skills/ikanban/SKILL.md` is refreshed, the managed `AGENTS.md` block is updated, other `AGENTS.md` content is preserved and the written paths are reported
+
+#### Scenario: Skill installation succeeds
+
+- **WHEN** the user activates Install AI skill in a trusted workspace
+- **THEN** the skill and pointer block are created, the written paths are reported and the view reflects the current skill state
+
+#### Scenario: Untrusted workspace blocks the action
+
+- **WHEN** the user attempts to install or update the skill in an untrusted workspace
+- **THEN** the action is blocked with an explanation and no file is written
+
+#### Scenario: No workspace folder
+
+- **WHEN** no workspace folder is available
+- **THEN** installing or updating the skill reports that a workspace folder is required and writes nothing
+
+#### Scenario: Update fails safely
+
+- **WHEN** the skill or `AGENTS.md` cannot be written
+- **THEN** the extension reports an actionable error, does not truncate existing content and leaves the view usable
+
+#### Scenario: Multiple workspace folders
+
+- **WHEN** more than one workspace folder is open
+- **THEN** skill status and updates use the same folder selection and remembered-choice rules as the other iKanban commands

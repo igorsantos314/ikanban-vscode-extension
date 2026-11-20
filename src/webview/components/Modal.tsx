@@ -10,6 +10,8 @@ export function Modal({
   children,
   footer,
   wide = false,
+  inert = false,
+  stacked = false,
 }: {
   title: string;
   titleAdornment?: ReactNode;
@@ -17,6 +19,8 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  inert?: boolean;
+  stacked?: boolean;
 }) {
   const titleId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -27,6 +31,9 @@ export function Modal({
   }, [onRequestClose]);
 
   useEffect(() => {
+    if (inert) {
+      return undefined;
+    }
     const previous = document.activeElement as HTMLElement | null;
     const container = containerRef.current;
     const first = container?.querySelector<HTMLElement>(FOCUSABLE);
@@ -66,13 +73,14 @@ export function Modal({
       document.removeEventListener('keydown', onKeyDown, true);
       previous?.focus();
     };
-  }, []);
+  }, [inert]);
 
   return (
     <div
-      className="modal-backdrop"
+      className={`modal-backdrop ${stacked ? 'modal-backdrop-stacked' : ''}`}
+      aria-hidden={inert ? true : undefined}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
+        if (!inert && event.target === event.currentTarget) {
           closeRef.current();
         }
       }}
@@ -80,10 +88,12 @@ export function Modal({
       <div
         ref={containerRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal={inert ? undefined : true}
+        aria-hidden={inert ? true : undefined}
         aria-labelledby={titleId}
         tabIndex={-1}
         className={`modal-panel ${wide ? 'modal-wide' : ''}`}
+        {...(inert ? { inert: true } : {})}
       >
         <div className="modal-header">
           <div className="modal-title-row">

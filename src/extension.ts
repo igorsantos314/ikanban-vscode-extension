@@ -408,7 +408,7 @@ function subscribeHomeStateChanges(onChange: () => void): Disposable {
     debouncer,
     workspace.onDidChangeWorkspaceFolders(() => debouncer.schedule()),
   ];
-  for (const pattern of ['**/.ikanban/board.yaml', '**/skills/ikanban/SKILL.md']) {
+  for (const pattern of ['**/.ikanban/board.yaml', '**/.agents/skills/ikanban/SKILL.md']) {
     const watcher = workspace.createFileSystemWatcher(pattern);
     disposables.push(
       watcher,

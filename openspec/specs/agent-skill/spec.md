@@ -26,12 +26,12 @@ The extension package SHALL include a standalone `SKILL.md` asset with Agent Ski
 
 ### Requirement: Workspace skill installation
 
-The extension SHALL expose the command `ikanban.installAgentSkill`. When run, the command SHALL use the same workspace-folder selection rules as the other board commands, SHALL require a trusted workspace, and SHALL install the bundled skill at `<workspace>/skills/ikanban/SKILL.md`. It SHALL create or update `<workspace>/AGENTS.md` with a delimited managed pointer block that tells agents to use the skill. On reinstall the managed block SHALL be replaced rather than duplicated, all content outside the block SHALL be preserved, and the installed `SKILL.md` SHALL be refreshed with the bundled version. The command SHALL report the paths it wrote.
+The extension SHALL expose the command `ikanban.installAgentSkill`. When run, the command SHALL use the same workspace-folder selection rules as the other board commands, SHALL require a trusted workspace, and SHALL install the bundled skill at `<workspace>/.agents/skills/ikanban/SKILL.md`. It SHALL create or update `<workspace>/AGENTS.md` with a delimited managed pointer block that tells agents to use the skill. On reinstall the managed block SHALL be replaced rather than duplicated, all content outside the block SHALL be preserved, and the installed `SKILL.md` SHALL be refreshed with the bundled version. The command SHALL report the paths it wrote.
 
 #### Scenario: First installation
 
-- **WHEN** the user runs `ikanban.installAgentSkill` in a trusted workspace with no `skills` directory and no `AGENTS.md`
-- **THEN** `skills/ikanban/SKILL.md` and `AGENTS.md` are created, the pointer block is present, and the command reports both paths
+- **WHEN** the user runs `ikanban.installAgentSkill` in a trusted workspace with no `agents/skills` directory and no `AGENTS.md`
+- **THEN** `.agents/skills/ikanban/SKILL.md` and `AGENTS.md` are created, the pointer block is present, and the command reports both paths
 
 #### Scenario: Existing AGENTS content is preserved
 

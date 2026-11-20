@@ -71,7 +71,7 @@ function dependencies(options: Options = {}): HomeStateDependencies {
 
 const BOARD = '/workspace/.ikanban/board.yaml';
 const IKANBAN = '/workspace/.ikanban';
-const SKILL = '/workspace/skills/ikanban/SKILL.md';
+const SKILL = '/workspace/.agents/skills/ikanban/SKILL.md';
 
 describe('peekWorkspaceFolder', () => {
   it('returns undefined with no folders', () => {
@@ -223,7 +223,7 @@ describe('detectHomeState', () => {
         folders: [folder('first'), second],
         remembered: second.uri.toString(),
         stats: { '/second/.ikanban/board.yaml': 'file' },
-        files: { '/second/skills/ikanban/SKILL.md': BUNDLED },
+        files: { '/second/.agents/skills/ikanban/SKILL.md': BUNDLED },
       }),
     );
     expect(state.workspaceName).toBe('second');

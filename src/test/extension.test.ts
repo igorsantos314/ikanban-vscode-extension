@@ -46,7 +46,7 @@ suite('iKanban extension', () => {
   }
 
   async function removeInstalledSkill(): Promise<void> {
-    for (const name of ['skills', 'AGENTS.md']) {
+    for (const name of ['.agents', 'agents', 'skills', 'AGENTS.md']) {
       try {
         await vscode.workspace.fs.delete(vscode.Uri.joinPath(root, name), {
           recursive: true,
@@ -171,13 +171,13 @@ suite('iKanban extension', () => {
   test('installs the portable agent skill and managed AGENTS pointer', async () => {
     await vscode.commands.executeCommand('ikanban.installAgentSkill');
 
-    const skillUri = vscode.Uri.joinPath(root, 'skills', 'ikanban', 'SKILL.md');
+    const skillUri = vscode.Uri.joinPath(root, '.agents', 'skills', 'ikanban', 'SKILL.md');
     const agentsUri = vscode.Uri.joinPath(root, 'AGENTS.md');
     const skill = await read(skillUri);
     assert.match(skill, /^---\nname: ikanban\n/);
     const installedAgents = await read(agentsUri);
     assert.ok(installedAgents.includes('<!-- ikanban-skill:start -->'));
-    assert.ok(installedAgents.includes('skills/ikanban/SKILL.md'));
+    assert.ok(installedAgents.includes('.agents/skills/ikanban/SKILL.md'));
 
     await vscode.commands.executeCommand('ikanban.installAgentSkill');
     assert.strictEqual(await read(agentsUri), installedAgents);
@@ -211,7 +211,7 @@ suite('iKanban extension', () => {
 
     await assert.rejects(async () => {
       await vscode.workspace.fs.stat(
-        vscode.Uri.joinPath(root, 'skills', 'ikanban', 'SKILL.md'),
+        vscode.Uri.joinPath(root, '.agents', 'skills', 'ikanban', 'SKILL.md'),
       );
     });
   });

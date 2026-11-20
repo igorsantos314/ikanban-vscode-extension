@@ -27,7 +27,7 @@
 ## 0.1.0
 
 - Refined the board and task dialog with layered surfaces, quieter borders, colored priority badges, neutral tag chips, compact metadata and a shared visual system.
-- Added a portable, provider-neutral agent skill and the `iKanban: Install AI Skill` command that installs `skills/ikanban/SKILL.md` and a managed `AGENTS.md` pointer.
+- Added a portable, provider-neutral agent skill and the `iKanban: Install AI Skill` command that installs `.agents/skills/ikanban/SKILL.md` and a managed `AGENTS.md` pointer.
 - Added the `iKanban: Create New Task` command with title and column prompts.
 - Added read-only creation and last-updated timestamps to the task dialog, with regression coverage for every mutation path.
 - Added an iKanban Activity Bar entry whose home view redirects to the board screen, with Open, Initialize and Validate actions as a fallback.

@@ -391,13 +391,13 @@ The view SHALL re-evaluate its state after initialization completes, after skill
 
 ### Requirement: Skill status and explicit update
 
-The extension SHALL determine the state of the workspace agent skill by comparing `<workspace>/skills/ikanban/SKILL.md` with the skill bundled in the installed extension. The home view SHALL present **Install AI skill** when the skill is missing, **Update AI skill** when the installed skill differs from the bundled version, and an up-to-date indication when both match. Status detection SHALL NOT modify any file.
+The extension SHALL determine the state of the workspace agent skill by comparing `<workspace>/.agents/skills/ikanban/SKILL.md` with the skill bundled in the installed extension. The home view SHALL present **Install AI skill** when the skill is missing, **Update AI skill** when the installed skill differs from the bundled version, and an up-to-date indication when both match. Status detection SHALL NOT modify any file.
 
 Updating SHALL be explicitly triggered by the user. When the user activates the update action, the extension SHALL replace the installed skill with the bundled version, create or replace the managed block in `AGENTS.md` while preserving all content outside that block, and report the paths written. The action SHALL be offered again after an extension update changes the bundled skill, and it SHALL follow the same workspace selection, trust and error-handling rules as the existing install command.
 
 #### Scenario: Skill missing
 
-- **WHEN** the selected workspace has no `skills/ikanban/SKILL.md`
+- **WHEN** the selected workspace has no `.agents/skills/ikanban/SKILL.md`
 - **THEN** the home view offers Install AI skill and writes nothing until the user activates it
 
 #### Scenario: Skill current
@@ -413,7 +413,7 @@ Updating SHALL be explicitly triggered by the user. When the user activates the 
 #### Scenario: User updates the skill
 
 - **WHEN** the user activates Update AI skill
-- **THEN** `skills/ikanban/SKILL.md` is refreshed, the managed `AGENTS.md` block is updated, other `AGENTS.md` content is preserved and the written paths are reported
+- **THEN** `.agents/skills/ikanban/SKILL.md` is refreshed, the managed `AGENTS.md` block is updated, other `AGENTS.md` content is preserved and the written paths are reported
 
 #### Scenario: Skill installation succeeds
 

@@ -47,7 +47,7 @@ For continuous Extension Host compilation use `npm run watch`; rebuild the webvi
 | `iKanban: Create New Task` | Prompts for a title and an existing column, creates the task with default fields and opens the board so details can be added in the task dialog. |
 | `iKanban: Validate Board` | Reloads the board, publishes diagnostics and reports an issue summary. |
 | `iKanban: Refresh Board` | Reloads the board and updates the open panel. |
-| `iKanban: Install AI Skill` | Installs the portable agent skill at `skills/ikanban/SKILL.md` and adds a managed pointer to `AGENTS.md`. |
+| `iKanban: Install AI Skill` | Installs the portable agent skill at `.agents/skills/ikanban/SKILL.md` and adds a managed pointer to `AGENTS.md`. |
 
 In a multi-root workspace, iKanban asks which workspace folder to use and remembers the choice for the session. Initialization always asks again so the board is created in the intended folder.
 
@@ -71,7 +71,7 @@ iKanban ships a portable, provider-neutral agent skill. It is a plain `SKILL.md`
 Install it in the selected workspace with **iKanban: Install AI Skill** (`ikanban.installAgentSkill`). The command writes:
 
 ```text
-skills/ikanban/SKILL.md   # the portable skill
+.agents/skills/ikanban/SKILL.md   # the portable skill
 AGENTS.md                 # managed pointer block for agents
 ```
 
@@ -79,7 +79,7 @@ AGENTS.md                 # managed pointer block for agents
 
 The Activity Bar home view compares the installed skill with the skill bundled in the current extension. It offers **Update AI skill** when they differ, for example after an extension update. Nothing is overwritten automatically: the refresh happens only when you activate the action, and the managed `AGENTS.md` block is updated while all other content is preserved.
 
-Agents that discover `AGENTS.md` or `skills/` can then use the skill directly to:
+Agents that discover `AGENTS.md` or `agents/skills/` can then use the skill directly to:
 
 - create a task in the backlog or any existing column;
 - update a task while preserving its ID and creation date;

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Marketplace metadata for the first public release: added a 256x256 PNG icon, a `galleryBanner`, and explicit `repository`, `homepage` and `bugs` entries so the listing links resolve to the source.
+- Stopped shipping type declarations, dependency READMEs and dependency changelogs in the VSIX, keeping only the files the extension needs at runtime.
+- No functional changes.
+
 ## 0.3.0
 
 - New tasks are now inserted at the top of their column instead of the end, with a column-local rebalance when the first task is already at position `0`.

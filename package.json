@@ -2,13 +2,22 @@
   "name": "ikanban",
   "displayName": "iKanban",
   "description": "Local-first Kanban board for VS Code, stored as portable YAML files.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "ikanban",
   "license": "MIT",
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#262e3e",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/igorsantos314/ikanban-vscode-extension.git"
+    "url": "https://github.com/igorsantos314/ikanban-vscode-extension"
   },
+  "bugs": {
+    "url": "https://github.com/igorsantos314/ikanban-vscode-extension/issues"
+  },
+  "homepage": "https://github.com/igorsantos314/ikanban-vscode-extension#readme",
   "engines": {
     "vscode": "^1.147.0"
   },
@@ -97,6 +106,7 @@
     "test:integration": "npm run build && vscode-test",
     "test": "npm run test:unit && npm run test:integration",
     "check": "npm run check:types && npm run lint && npm run test:unit",
+    "check:marketplace": "node scripts/check-marketplace.mjs",
     "package": "npm run build && vsce package",
     "build:release": "node scripts/build-release.mjs"
   },

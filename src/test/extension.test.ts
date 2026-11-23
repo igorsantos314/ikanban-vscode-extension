@@ -260,6 +260,28 @@ suite('iKanban extension', () => {
     assert.strictEqual(task.createdAt, task.updatedAt);
   });
 
+  test('creates tasks from the command at the top of the column', async () => {
+    await request<BoardSnapshot>('board/initialize', {});
+    await withTaskPrompts(
+      'Older command task',
+      (items) => items.find((item) => item.columnId === 'backlog'),
+      () => vscode.commands.executeCommand('ikanban.createTask'),
+    );
+    await withTaskPrompts(
+      'Newer command task',
+      (items) => items.find((item) => item.columnId === 'backlog'),
+      () => vscode.commands.executeCommand('ikanban.createTask'),
+    );
+
+    const snapshot = await request<BoardSnapshot>('board/load', {});
+    const backlogTasks = snapshot.tasks.filter((entry) => entry.columnId === 'backlog');
+    assert.deepStrictEqual(
+      backlogTasks.slice(0, 2).map((entry) => entry.title),
+      ['Newer command task', 'Older command task'],
+    );
+    assert.ok(backlogTasks[0]!.position < backlogTasks[1]!.position);
+  });
+
   test('skips the column picker when the board has one column', async () => {
     let snapshot = await request<BoardSnapshot>('board/initialize', {});
     for (const id of ['in-progress', 'done']) {

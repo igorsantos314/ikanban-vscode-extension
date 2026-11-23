@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
+- New tasks are now inserted at the top of their column instead of the end, with a column-local rebalance when the first task is already at position `0`.
+- Updated the agent skill and documentation to prepend new tasks and describe the new position rules.
+- Fixed board refresh races by serializing board loads with mutations and rejecting stale page responses.
+- Fixed TypeScript matcher typings for `@testing-library/jest-dom` with Vitest 5.
 - Redefined compact cards as exactly two lines: title plus priority, checklist count, tag icons and deadline.
 - Added an optional task deadline with masked `DD/MM/AAAA` and `HH:MM` fields, stored as one ISO 8601 UTC `dueAt` timestamp and shown in local time.
 - Made the whole card clickable to open and draggable to move, removing the drag handle and per-card arrow/delete buttons.

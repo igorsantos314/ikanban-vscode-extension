@@ -89,7 +89,7 @@ updatedAt: "2026-11-18T10:00:00.000Z"
 | `description` | Optional string. Empty is valid and multiline text is preserved literally. |
 | `tags` | Array containing only `issue`, `feat`, `chore` and `spec`, without duplicates, in the canonical order `issue`, `feat`, `chore`, `spec`. |
 | `priority` | Exactly `low`, `medium` or `high`. |
-| `position` | Non-negative integer used to order tasks inside the column. Prefer unique values spaced by `1024`. |
+| `position` | Non-negative integer used to order tasks inside the column. A new task must be placed before the current first task: use the greatest non-negative integer below the current minimum, or `1024` when the column is empty. If the minimum is `0`, rebalance the column to `1024`, `2048`, `3072`... with the new task first. Keep spaced positions when moving or reordering existing tasks. |
 | `checklists` | Array of checklists; each has a UUID `id`, non-empty `title`, non-negative integer `position` and an `items` array. |
 | checklist item | UUID `id`, non-empty `text`, boolean `completed` and non-negative integer `position`. |
 | `dueAt` | Optional ISO 8601 UTC instant with both date and time, for example `2026-11-25T14:30:00.000Z`. Omit the key when there is no deadline; never write a date without a time or a null placeholder. |
@@ -109,7 +109,7 @@ The default destination is usually `backlog`, but use whichever existing column 
 1. Read `board.yaml` and confirm the target column directory exists.
 2. Generate a UUID (version 4) for the task.
 3. Set `createdAt` and `updatedAt` to the same current UTC timestamp.
-4. Read the tasks already in the target column and set `position` to the highest existing position plus `1024`, or `1024` when the column is empty.
+4. Read the tasks already in the target column. Set `position` to the greatest non-negative integer below the current minimum, or `1024` when the column is empty. If the current minimum is `0`, rebalance the column to `1024`, `2048`, `3072`... with the new task first, update `updatedAt` on every existing task whose position changes, and preserve their relative order.
 5. Write the file as `.ikanban/<column-id>/<task-id>.yaml` with the full schema above.
 6. Use `priority: medium`, `description: ""`, `tags: []` and `checklists: []` unless the user provided other values.
 7. Set `dueAt` only when the user requested a deadline, using one ISO 8601 UTC instant with date and time. Omit the key when there is no deadline.
@@ -120,11 +120,13 @@ title: "Write the release notes"
 description: ""
 tags: [spec]
 priority: medium
-position: 3072
+position: 1024
 checklists: []
 createdAt: "2026-11-18T10:00:00.000Z"
 updatedAt: "2026-11-18T10:00:00.000Z"
 ```
+
+The example position applies to an empty target column; for a non-empty column, use the position immediately below its current minimum.
 
 The VS Code command `iKanban: Create New Task` provides the same quick creation flow with prompts. Use it when the user wants a new task without specifying every field.
 
@@ -177,6 +179,7 @@ Before reporting success, confirm:
 - The file name matches `id`.
 - `createdAt` and `updatedAt` use the UTC format above.
 - A new task has `createdAt == updatedAt`.
+- A new task is ordered before every pre-existing task in its column; if a rebalance was required, existing positions were updated and their `updatedAt` refreshed.
 - Every modification changed `updatedAt` and left `createdAt` intact.
 - Tags and priority are supported values.
 - A `dueAt`, when present, is one valid ISO 8601 UTC instant with both date and time; otherwise the key is absent.

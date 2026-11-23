@@ -5,3 +5,4 @@ node_modules
 *.vsix
 .ikanban/.index/
 .ikanban/
+artigo-ikanban-openspec.md

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed a drag-and-drop crash where moving several cards between columns, especially near a column or card boundary, could make React throw "Maximum update depth exceeded" and close the board. Drag-over previews are now coalesced to one commit per animation frame, and dropping a card still uses the latest previewed target.
+
 ## 0.3.1
 
 - Marketplace metadata for the first public release: added a 256x256 PNG icon, a `galleryBanner`, and explicit `repository`, `homepage` and `bugs` entries so the listing links resolve to the source.

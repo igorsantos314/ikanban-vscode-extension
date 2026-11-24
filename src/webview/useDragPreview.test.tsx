@@ -47,6 +47,12 @@ function endWithoutTarget(id = 'a'): DragEndEvent {
   return { active: { id }, over: null } as unknown as DragEndEvent;
 }
 
+async function flushPreviewFrame() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  });
+}
+
 function setup(
   moveTask: (task: TaskView, toColumnId: string, targetIndex: number) => Promise<void> = vi.fn(
     async () => undefined,
@@ -74,10 +80,11 @@ describe('useDragPreview', () => {
     ]);
   });
 
-  it('previews a cross-column move while dragging', () => {
+  it('previews a cross-column move while dragging', async () => {
     const hook = setup();
     act(() => hook.result.current.handleDragStart(start()));
     act(() => hook.result.current.handleDragOver(over('column:done')));
+    await flushPreviewFrame();
 
     expect(hook.result.current.dragPreview?.order).toEqual({
       backlog: ['b'],
@@ -89,12 +96,42 @@ describe('useDragPreview', () => {
     ]);
   });
 
-  it('previews insertion before a task using the pointer direction', () => {
+  it('previews insertion before a task using the pointer direction', async () => {
     const hook = setup();
     act(() => hook.result.current.handleDragStart(start()));
     act(() => hook.result.current.handleDragOver(over('c', 0, 0, 100)));
+    await flushPreviewFrame();
 
     expect(hook.result.current.dragPreview?.order.done).toEqual(['a', 'c']);
+  });
+
+  it('coalesces drag-over updates into the latest preview per frame', async () => {
+    const hook = setup();
+    act(() => hook.result.current.handleDragStart(start()));
+    act(() => {
+      hook.result.current.handleDragOver(over('column:done'));
+      hook.result.current.handleDragOver(over('c', 0, 0, 100));
+    });
+    // The render commit waits for the frame even though the latest target was applied.
+    expect(hook.result.current.dragPreview?.order).toEqual({
+      backlog: ['a', 'b'],
+      done: ['c'],
+    });
+    await flushPreviewFrame();
+
+    expect(hook.result.current.dragPreview?.order).toEqual({
+      backlog: ['b'],
+      done: ['a', 'c'],
+    });
+  });
+
+  it('flushes the latest drag-over target when the card is dropped in the same frame', () => {
+    const hook = setup();
+    act(() => hook.result.current.handleDragStart(start()));
+    act(() => hook.result.current.handleDragOver(over('c', 0, 0, 100)));
+    act(() => hook.result.current.handleDragEnd(end('a', 'c')));
+
+    expect(hook.moveTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }), 'done', 0);
   });
 
   it('ignores unknown targets and no-op positions', () => {

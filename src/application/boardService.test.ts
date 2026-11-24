@@ -298,6 +298,138 @@ describe('task use cases', () => {
     expect(loaded.checklists[0]?.items).toHaveLength(2);
   });
 
+  it('prepends new tasks before the existing tasks', async () => {
+    const { service } = await setup();
+    const first = await service.createTask(taskInput({ title: 'First' }));
+    const second = await service.createTask(taskInput({ title: 'Second' }));
+    const third = await service.createTask(taskInput({ title: 'Third' }));
+
+    expect(second.position).toBe(first.position - 1);
+    expect(third.position).toBe(second.position - 1);
+
+    const snapshot = await service.loadBoard();
+    expect(
+      snapshot.tasks
+        .filter((entry) => entry.columnId === 'backlog')
+        .map((entry) => entry.title),
+    ).toEqual(['Third', 'Second', 'First']);
+  });
+
+  it('does not rewrite sibling files for an ordinary prepend', async () => {
+    const { service, workspace } = await setup();
+    const first = await service.createTask(taskInput({ title: 'First' }));
+    const uri = workspace.fs.joinPath(
+      workspace.ikanbanUri,
+      'backlog',
+      `${first.id}.yaml`,
+    );
+    const before = await workspace.store.read(uri);
+
+    const second = await service.createTask(taskInput({ title: 'Second' }));
+
+    const after = await workspace.store.read(uri);
+    expect(second.position).toBe(first.position - 1);
+    expect(after?.raw).toBe(before?.raw);
+    expect(after?.revision).toBe(before?.revision);
+    const snapshot = await service.loadBoard();
+    expect(snapshot.tasks.find((entry) => entry.id === first.id)?.updatedAt).toBe(
+      first.updatedAt,
+    );
+  });
+
+  it('rebalances only the affected column when no position remains above the first task', async () => {
+    const { service, workspace } = await setup();
+    const first = await service.createTask(taskInput({ title: 'First' }));
+    await service.createTask(taskInput({ title: 'Second' }));
+    const third = await service.createTask(taskInput({ title: 'Third' }));
+    const otherColumn = await service.createTask(
+      taskInput({ title: 'Other', columnId: 'done' }),
+    );
+    const otherUri = workspace.fs.joinPath(
+      workspace.ikanbanUri,
+      'done',
+      `${otherColumn.id}.yaml`,
+    );
+    const otherBefore = await workspace.store.read(otherUri);
+
+    const currentThird = (await service.loadBoard()).tasks.find(
+      (entry) => entry.id === third.id,
+    )!;
+    await workspace.tasks.updateTask(
+      { ...currentThird, position: 0 },
+      currentThird.revision,
+    );
+
+    const newest = await service.createTask(taskInput({ title: 'Newest' }));
+
+    const snapshot = await service.loadBoard();
+    const backlog = snapshot.tasks.filter((entry) => entry.columnId === 'backlog');
+    expect(backlog.map((entry) => entry.title)).toEqual([
+      'Newest',
+      'Third',
+      'Second',
+      'First',
+    ]);
+    expect(newest.position).toBe(1024);
+    expect(backlog.map((entry) => entry.position)).toEqual([1024, 2048, 3072, 4096]);
+    expect(backlog.find((entry) => entry.id === first.id)?.position).toBe(4096);
+
+    const otherAfter = await workspace.store.read(otherUri);
+    expect(otherAfter?.raw).toBe(otherBefore?.raw);
+  });
+
+  it('restores rebalanced siblings when prepending fails', async () => {
+    const { service, workspace } = await setup();
+    const first = await service.createTask(taskInput({ title: 'First' }));
+    const currentFirst = (await service.loadBoard()).tasks.find(
+      (entry) => entry.id === first.id,
+    )!;
+    await workspace.tasks.updateTask(
+      { ...currentFirst, position: 0 },
+      currentFirst.revision,
+    );
+
+    const newTaskId = '00000000-0000-4000-8000-999999999999';
+    const faultyFs = new Proxy(workspace.fs, {
+      get(target, property) {
+        if (property === 'writeFile') {
+          return async (
+            uri: Parameters<typeof target.writeFile>[0],
+            content: Uint8Array,
+          ) => {
+            if (uri.path.includes(newTaskId)) {
+              throw new Error('Injected write failure');
+            }
+            return target.writeFile(uri, content);
+          };
+        }
+        const value = Reflect.get(target, property) as unknown;
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as typeof workspace.fs;
+    const faultyStore = new YamlFileStore(faultyFs);
+    const faultyBoard = new YamlBoardRepository(faultyFs, faultyStore, workspace.ikanbanUri);
+    const faultyTasks = new YamlTaskRepository(faultyFs, faultyStore, faultyBoard);
+    const faultyService = new BoardService({
+      board: faultyBoard,
+      tasks: faultyTasks,
+      clock: new FixedClock(),
+      ids: { next: () => newTaskId },
+      workspaceName: 'Test Workspace',
+    });
+
+    await expect(
+      faultyService.createTask(taskInput({ title: 'Cannot persist' })),
+    ).rejects.toBeInstanceOf(StorageError);
+
+    const restored = await workspace.tasks.readTaskById('backlog', first.id);
+    expect(restored?.ok).toBe(true);
+    if (restored?.ok) {
+      expect(restored.document.value.position).toBe(0);
+    }
+    expect(await workspace.tasks.readTaskById('backlog', newTaskId)).toBeUndefined();
+  });
+
   it('creates, updates and clears an optional deadline', async () => {
     const { service, workspace } = await setup();
     const task = await service.createTask(
@@ -546,7 +678,7 @@ describe('task use cases', () => {
       snapshot.tasks
         .filter((entry) => entry.columnId === 'backlog')
         .map((entry) => entry.title),
-    ).toEqual(['Third', 'First', 'Second']);
+    ).toEqual(['Third', 'Second', 'First']);
     expect(
       snapshot.tasks.find((entry) => entry.id === first.id)?.position,
     ).toBeGreaterThan(
@@ -734,6 +866,91 @@ describe('MutationQueue', () => {
   });
 });
 
+describe('refresh consistency', () => {
+  it('waits for an in-flight cross-column move before loading the board', async () => {
+    const workspace = await createTestWorkspace();
+    workspaces.push(workspace);
+    const seed = new BoardService({
+      board: workspace.board,
+      tasks: workspace.tasks,
+      clock: new FixedClock(),
+      ids: new SequenceIdGenerator(),
+      workspaceName: 'Test Workspace',
+    });
+    await seed.initializeBoard();
+    const task = await seed.createTask(taskInput({ title: 'Move during refresh' }));
+
+    let releaseDelete: () => void = () => undefined;
+    const deleteGate = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+    let notifyDeleteStarted: () => void = () => undefined;
+    const deleteStarted = new Promise<void>((resolve) => {
+      notifyDeleteStarted = resolve;
+    });
+    let blocked = false;
+
+    const fs = new Proxy(workspace.fs, {
+      get(target, property) {
+        if (property === 'delete') {
+          return async (
+            uri: Parameters<typeof target.delete>[0],
+            options?: Parameters<typeof target.delete>[1],
+          ) => {
+            if (
+              !blocked &&
+              uri.fsPath.includes('/backlog/') &&
+              uri.fsPath.endsWith(`${task.id}.yaml`)
+            ) {
+              blocked = true;
+              notifyDeleteStarted();
+              await deleteGate;
+            }
+            return target.delete(uri, options);
+          };
+        }
+        const value = Reflect.get(target, property) as unknown;
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as typeof workspace.fs;
+
+    const store = new YamlFileStore(fs);
+    const board = new YamlBoardRepository(fs, store, workspace.ikanbanUri);
+    const tasks = new YamlTaskRepository(fs, store, board);
+    const service = new BoardService({
+      board,
+      tasks,
+      clock: new FixedClock(),
+      ids: new SequenceIdGenerator(),
+      workspaceName: 'Test Workspace',
+    });
+    services.push(service);
+
+    const move = service.moveTask({
+      taskId: task.id,
+      fromColumnId: 'backlog',
+      toColumnId: 'in-progress',
+      targetIndex: 0,
+      expectedRevision: task.revision,
+    });
+    await deleteStarted;
+
+    let loadResolved = false;
+    const load = service.loadBoard().then((snapshot) => {
+      loadResolved = true;
+      return snapshot;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(loadResolved).toBe(false);
+
+    releaseDelete();
+    await move;
+    const snapshot = await load;
+    expect(snapshot.tasks.find((entry) => entry.id === task.id)?.columnId).toBe('in-progress');
+    expect(column(snapshot, 'backlog')?.taskCount).toBe(0);
+  });
+});
+
 describe('deadline after move', () => {
   it('updates a task immediately after a move using the reloaded revision', async () => {
     const { service } = await setup();
@@ -906,6 +1123,34 @@ describe('paginated board loading', () => {
       'backlog.json',
     );
     expect(await workspace.fs.exists(indexUri)).toBe(true);
+  });
+
+  it('invalidates the index and includes a prepended task on the first page', async () => {
+    const { service, workspace } = await setup();
+    for (let index = 0; index < 25; index += 1) {
+      await service.createTask(taskInput({ title: `Task ${String(index).padStart(2, '0')}` }));
+    }
+
+    const before = await service.loadBoard();
+    const backlogBefore = column(before, 'backlog')!;
+    expect(backlogBefore.hasMore).toBe(true);
+    const indexUri = workspace.fs.joinPath(
+      workspace.ikanbanUri,
+      '.index',
+      'backlog.json',
+    );
+    expect(await workspace.fs.exists(indexUri)).toBe(true);
+
+    const newest = await service.createTask(taskInput({ title: 'Newest' }));
+    expect(await workspace.fs.exists(indexUri)).toBe(false);
+
+    const after = await service.loadBoard();
+    const backlogAfter = column(after, 'backlog')!;
+    expect(backlogAfter.taskCount).toBe(26);
+    expect(backlogAfter.loadedCount).toBe(20);
+    expect(backlogAfter.hasMore).toBe(true);
+    expect(after.tasks.find((entry) => entry.id === newest.id)?.title).toBe('Newest');
+    expect(after.tasks.some((entry) => entry.title === 'Task 00')).toBe(false);
   });
 
   it('rejects a stale page cursor revision', async () => {

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Added a standalone English landing page under `web/` with a product tour, AI/local LLM workflow, SDD benefits and installation paths, linking the GitHub repository and the author's LinkedIn.
+- Updated the extension and README description to call iKanban a "local Kanban" board and to highlight the AI-ready `SKILL.md` workflow and spec-driven development, including low-cost models such as DeepSeek V4.1 Flash 1017.
+- Fixed a drag-and-drop crash where moving several cards between columns, especially near a column or card boundary, could make React throw "Maximum update depth exceeded" and close the board. Drag-over previews are now coalesced to one commit per animation frame, and dropping a card still uses the latest previewed target.
+
+## 0.3.1
+
+- Marketplace metadata for the first public release: added a 256x256 PNG icon, a `galleryBanner`, and explicit `repository`, `homepage` and `bugs` entries so the listing links resolve to the source.
+- Stopped shipping type declarations, dependency READMEs and dependency changelogs in the VSIX, keeping only the files the extension needs at runtime.
+- No functional changes.
+
+## 0.3.0
+
+- New tasks are now inserted at the top of their column instead of the end, with a column-local rebalance when the first task is already at position `0`.
+- Updated the agent skill and documentation to prepend new tasks and describe the new position rules.
+- Fixed board refresh races by serializing board loads with mutations and rejecting stale page responses.
+- Fixed TypeScript matcher typings for `@testing-library/jest-dom` with Vitest 5.
 - Redefined compact cards as exactly two lines: title plus priority, checklist count, tag icons and deadline.
 - Added an optional task deadline with masked `DD/MM/AAAA` and `HH:MM` fields, stored as one ISO 8601 UTC `dueAt` timestamp and shown in local time.
 - Made the whole card clickable to open and draggable to move, removing the drag handle and per-card arrow/delete buttons.

@@ -25,7 +25,7 @@ import {
   ValidationError,
 } from '../domain/errors';
 import { normalizeTags } from '../domain/tags';
-import { nextPosition, planReorder, sortByPosition } from '../domain/positions';
+import { nextPosition, planPrepend, planReorder, sortByPosition } from '../domain/positions';
 import type { Checklist, ChecklistItem, Column, Task } from '../domain/types';
 import { requirePriority } from '../domain/types';
 import {
@@ -180,7 +180,7 @@ export class BoardService {
   initializeBoard(): Promise<BoardSnapshot> {
     return this.queue.run(async () => {
       if (await this.board.boardExists()) {
-        return this.loadBoard();
+        return this.loadBoardNow();
       }
 
       await this.board.ensureRoot();
@@ -208,11 +208,15 @@ export class BoardService {
         throw error;
       }
 
-      return this.loadBoard();
+      return this.loadBoardNow();
     });
   }
 
-  async loadBoard(): Promise<BoardSnapshot> {
+  loadBoard(): Promise<BoardSnapshot> {
+    return this.queue.run(() => this.loadBoardNow());
+  }
+
+  private async loadBoardNow(): Promise<BoardSnapshot> {
     if (!(await this.board.boardExists())) {
       const emptyRoot = await this.board.isRootEmpty();
       const issues: ValidationIssue[] = emptyRoot
@@ -449,7 +453,7 @@ export class BoardService {
   validateBoard(): Promise<BoardSnapshot> {
     return this.queue.run(async () => {
       await this.tasks.invalidateAllIndexes();
-      return this.loadBoard();
+      return this.loadBoardNow();
     });
   }
 
@@ -514,7 +518,7 @@ export class BoardService {
         await this.board.deleteColumn(id).catch(() => undefined);
         throw error;
       }
-      return this.loadBoard();
+      return this.loadBoardNow();
     });
   }
 
@@ -528,7 +532,7 @@ export class BoardService {
         { ...column.column, title, color },
         input.expectedRevision,
       );
-      return this.loadBoard();
+      return this.loadBoardNow();
     });
   }
 
@@ -563,7 +567,7 @@ export class BoardService {
           messageOf(error),
         );
       }
-      return this.loadBoard();
+      return this.loadBoardNow();
     });
   }
 
@@ -583,7 +587,7 @@ export class BoardService {
         throw new ValidationError('Column reorder must include every existing column exactly once.');
       }
       await this.board.writeBoard({ ...config, columnIds: requested }, revision);
-      return this.loadBoard();
+      return this.loadBoardNow();
     });
   }
 
@@ -593,19 +597,53 @@ export class BoardService {
       const existing = await this.tasksForColumn(column.id);
       const now = this.clock.now().toISOString();
       const dueAt = normalizeDueAt(input.dueAt);
+      const taskId = this.ids.next();
+      const plan = planPrepend(existing, taskId);
       const task: Task = {
-        id: this.ids.next(),
+        id: taskId,
         title: normalizeRequiredText(input.title, 'Task title'),
         description: input.description ?? '',
         columnId: column.id,
         tags: normalizeTags(input.tags),
         priority: requirePriority(input.priority),
-        position: nextPosition(existing),
+        position: plan.positions[taskId]!,
         checklists: this.buildChecklists(input.checklists ?? []),
         ...(dueAt ? { dueAt } : {}),
         createdAt: now,
         updatedAt: now,
       };
+
+      if (plan.rebalanced) {
+        const changed: Array<{ previous: TaskView; revision: string }> = [];
+        try {
+          for (const entry of existing) {
+            const plannedPosition = plan.positions[entry.id];
+            if (plannedPosition === undefined || plannedPosition === entry.position) {
+              continue;
+            }
+            const updated = {
+              ...entry,
+              position: plannedPosition,
+              updatedAt: this.clock.now().toISOString(),
+            };
+            const written = await this.tasks.updateTask(updated, entry.revision);
+            changed.push({ previous: entry, revision: written.revision });
+          }
+          const written = await this.tasks.createTask(task);
+          await this.tasks.invalidateColumnIndex(column.id);
+          return { ...task, revision: written.revision };
+        } catch (error) {
+          for (const entry of changed.reverse()) {
+            const restored = {
+              ...entry.previous,
+              updatedAt: this.clock.now().toISOString(),
+            };
+            await this.tasks.updateTask(restored, entry.revision).catch(() => undefined);
+          }
+          throw error;
+        }
+      }
+
       const written = await this.tasks.createTask(task);
       await this.tasks.invalidateColumnIndex(column.id);
       return { ...task, revision: written.revision };
@@ -740,7 +778,7 @@ export class BoardService {
         await this.tasks.invalidateColumnIndex(source.task.columnId);
         await this.tasks.invalidateColumnIndex(targetColumn.column.id);
       }
-      return this.loadBoard();
+      return this.loadBoardNow();
     });
   }
 

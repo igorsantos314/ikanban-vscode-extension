@@ -28,6 +28,27 @@ export interface PositionPlan {
   rebalanced: boolean;
 }
 
+export function planPrepend(
+  items: readonly Positioned[],
+  newItemId: string,
+): PositionPlan {
+  if (items.length === 0) {
+    return { positions: { [newItemId]: POSITION_STEP }, rebalanced: false };
+  }
+
+  const sorted = sortByPosition(items);
+  const first = sorted[0]!;
+  if (first.position > 0) {
+    return { positions: { [newItemId]: first.position - 1 }, rebalanced: false };
+  }
+
+  const positions: Record<string, number> = { [newItemId]: POSITION_STEP };
+  sorted.forEach((item, index) => {
+    positions[item.id] = (index + 2) * POSITION_STEP;
+  });
+  return { positions, rebalanced: true };
+}
+
 export function planReorder(
   items: readonly Positioned[],
   movingId: string,

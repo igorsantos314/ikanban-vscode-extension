@@ -761,4 +761,86 @@ describe('App pagination', () => {
     });
     expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
   });
+
+  it('ignores a page response that arrives after the column was refreshed', async () => {
+    const user = userEvent.setup();
+    const firstTask = task({ id: 'task-page-1', title: 'Page one', position: 1024 });
+    const staleTask = task({ id: 'task-page-2', title: 'Stale page', position: 2048 });
+    const refreshedTask = task({ id: 'task-page-3', title: 'Refreshed page', position: 1024 });
+    const pagedSnapshot = (
+      tasksRevision: string,
+      tasks: TaskView[],
+      hasMore: boolean,
+    ): BoardSnapshot => ({
+      workspaceName: 'Workspace',
+      board: {
+        version: 1,
+        name: 'Paged',
+        columnIds: ['backlog'],
+        revision: 'board-rev',
+      },
+      columns: [
+        {
+          id: 'backlog',
+          title: 'Backlog',
+          color: '#64748b',
+          revision: 'col',
+          taskCount: tasks.length,
+          loadedCount: tasks.length,
+          tasksRevision,
+          hasMore,
+          nextCursor: hasMore
+            ? { position: tasks[tasks.length - 1]!.position, taskId: tasks[tasks.length - 1]!.id }
+            : null,
+        },
+      ],
+      tasks,
+      issues: [],
+      canInitialize: false,
+    });
+
+    let releasePage: (value: unknown) => void = () => undefined;
+    let notifyPageRequested: () => void = () => undefined;
+    const pageRequested = new Promise<void>((resolve) => {
+      notifyPageRequested = resolve;
+    });
+    const pendingPage = new Promise((resolve) => {
+      releasePage = resolve;
+    });
+    const { client, push } = fakeClient({
+      load: pagedSnapshot('rev-1', [firstTask], true),
+      onRequest: (type) => {
+        if (type === 'task/page') {
+          notifyPageRequested();
+          return pendingPage;
+        }
+        return undefined;
+      },
+    });
+
+    render(<App client={client} />);
+    await screen.findByText('Page one');
+    await user.click(screen.getByRole('button', { name: 'Load more' }));
+    await pageRequested;
+
+    push({
+      type: 'board/updated',
+      version: 1,
+      snapshot: pagedSnapshot('rev-2', [refreshedTask], false),
+    });
+    await screen.findByText('Refreshed page');
+
+    releasePage({
+      columnId: 'backlog',
+      tasks: [staleTask],
+      nextCursor: null,
+      hasMore: false,
+      taskCount: 2,
+      tasksRevision: 'rev-1',
+    });
+    await waitFor(() =>
+      expect(screen.queryByText('Stale page')).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText('Page one')).not.toBeInTheDocument();
+  });
 });

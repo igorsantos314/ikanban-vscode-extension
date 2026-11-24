@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { nextPosition, planReorder, POSITION_STEP, sortByPosition } from './positions';
+import {
+  nextPosition,
+  planPrepend,
+  planReorder,
+  POSITION_STEP,
+  sortByPosition,
+} from './positions';
 import { ValidationError } from './errors';
 
 const tasks = [
@@ -22,6 +28,52 @@ describe('positions', () => {
   it('appends new items using spaced positions', () => {
     expect(nextPosition([])).toBe(POSITION_STEP);
     expect(nextPosition(tasks)).toBe(4096);
+  });
+
+  it('prepends items before the current minimum', () => {
+    expect(planPrepend([], 'new')).toEqual({
+      positions: { new: POSITION_STEP },
+      rebalanced: false,
+    });
+    expect(planPrepend(tasks, 'new')).toEqual({
+      positions: { new: 1023 },
+      rebalanced: false,
+    });
+  });
+
+  it('rebalances the column when no position remains before the first item', () => {
+    const plan = planPrepend(
+      [
+        { id: 'b', position: 0 },
+        { id: 'a', position: 0 },
+        { id: 'c', position: 1024 },
+      ],
+      'new',
+    );
+    expect(plan.rebalanced).toBe(true);
+    expect(plan.positions).toEqual({
+      new: 1024,
+      a: 2048,
+      b: 3072,
+      c: 4096,
+    });
+  });
+
+  it('keeps the original relative order when prepending requires a rebalance', () => {
+    const plan = planPrepend(
+      [
+        { id: 'z', position: 0 },
+        { id: 'a', position: 0 },
+        { id: 'm', position: 0 },
+      ],
+      'new',
+    );
+    expect(plan.positions).toEqual({
+      new: 1024,
+      a: 2048,
+      m: 3072,
+      z: 4096,
+    });
   });
 
   it('inserts between neighbors with a midpoint', () => {

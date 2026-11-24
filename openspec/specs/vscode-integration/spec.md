@@ -299,12 +299,17 @@ The extension manifest SHALL declare `engines.vscode` at the supported baseline 
 
 ### Requirement: Create task command
 
-The extension SHALL expose the command `ikanban.createTask` with the title `Create New Task`. The command SHALL use the same workspace-folder selection rules as the other board commands, SHALL require a trusted workspace, and SHALL load the selected board before prompting. It SHALL ask for a non-empty task title and an existing target column; when the board has only one column it SHALL use that column without asking. A cancelled prompt SHALL abort without writing. On confirmation it SHALL create a task in the chosen column with an empty description, priority `medium`, no tags and no checklists, append it after the existing tasks, and open or reveal the board panel so the user can add details in the task dialog. When the board is not initialized or has no columns, the command SHALL report an actionable error and write nothing.
+The extension SHALL expose the command `ikanban.createTask` with the title `Create New Task`. The command SHALL use the same workspace-folder selection rules as the other board commands, SHALL require a trusted workspace, and SHALL load the selected board before prompting. It SHALL ask for a non-empty task title and an existing target column; when the board has only one column it SHALL use that column without asking. A cancelled prompt SHALL abort without writing. On confirmation it SHALL create a task in the chosen column with an empty description, priority `medium`, no tags and no checklists, prepend it before the existing tasks, and open or reveal the board panel so the user can add details in the task dialog. When the board is not initialized or has no columns, the command SHALL report an actionable error and write nothing.
 
 #### Scenario: Create a task from the Command Palette
 
 - **WHEN** the user runs `ikanban.createTask` in a trusted initialized workspace, enters a title and selects a column
-- **THEN** the new task is persisted in that column with the default fields and the board opens or is revealed showing it
+- **THEN** the new task is persisted first in that column with the default fields and the board opens or is revealed showing it
+
+#### Scenario: New task appears at the top
+
+- **WHEN** the selected column already contains tasks and the command creates a new task
+- **THEN** the new task appears before every existing task in that column
 
 #### Scenario: Single-column board
 

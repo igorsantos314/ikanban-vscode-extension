@@ -215,6 +215,17 @@ function applyPageLoaded(
   if (!state.snapshot) {
     return state;
   }
+  const currentPage = state.pages[columnId];
+  const column = state.snapshot.columns.find((entry) => entry.id === columnId);
+  if (
+    !currentPage ||
+    page.columnId !== columnId ||
+    (Boolean(currentPage.tasksRevision) &&
+      page.tasksRevision !== currentPage.tasksRevision) ||
+    (Boolean(column?.tasksRevision) && page.tasksRevision !== column?.tasksRevision)
+  ) {
+    return state;
+  }
   const existingIds = new Set(state.snapshot.tasks.map((task) => task.id));
   const appended = page.tasks.filter((task) => !existingIds.has(task.id));
   const tasks = sortTasks(state.snapshot, [...state.snapshot.tasks, ...appended]);

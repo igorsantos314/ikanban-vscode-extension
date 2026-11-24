@@ -70,12 +70,22 @@ The extension SHALL expose the command `ikanban.installAgentSkill`. When run, th
 
 ### Requirement: Agent task operations
 
-The skill SHALL instruct agents to read `.ikanban/board.yaml` before acting and to use only existing column directories. For task creation, the agent SHALL generate a stable UUID, write `<task-id>.yaml` inside the target column directory, set `createdAt` and `updatedAt` to the same current UTC timestamp, assign a position after the current maximum in that column, use only canonical tags and a valid priority, and embed checklists with UUID identifiers and positions. A task document SHALL NOT contain a status or column field. For updates, the agent SHALL preserve the task ID, `createdAt`, column membership and position unless the request explicitly moves or reorders it, and SHALL update `updatedAt`. For moves, the agent SHALL move the YAML file between existing column directories, recalculate the target position and update `updatedAt` while preserving every other field. For reordering, the agent SHALL assign spaced positions and update `updatedAt` for each task whose position changes. For deletion, the agent SHALL remove only the requested task file.
+The skill SHALL instruct agents to read `.ikanban/board.yaml` before acting and to use only existing column directories. For task creation, the agent SHALL generate a stable UUID, write `<task-id>.yaml` inside the target column directory, set `createdAt` and `updatedAt` to the same current UTC timestamp, assign the greatest non-negative position lower than the current minimum in that column (or `1024` when the column is empty), use only canonical tags and a valid priority, and embed checklists with UUID identifiers and positions. When the current minimum position is `0`, the agent SHALL rebalance the target column locally so the new task is first while preserving the existing relative order. A task document SHALL NOT contain a status or column field. For updates, the agent SHALL preserve the task ID, `createdAt`, column membership and position unless the request explicitly moves or reorders it, and SHALL update `updatedAt`. For moves, the agent SHALL move the YAML file between existing column directories, recalculate the target position and update `updatedAt` while preserving every other field. For reordering, the agent SHALL assign spaced positions and update `updatedAt` for each task whose position changes. For deletion, the agent SHALL remove only the requested task file.
 
 #### Scenario: Add a task to the backlog
 
 - **WHEN** an agent adds a task to `backlog`
-- **THEN** a new `<uuid>.yaml` exists in `.ikanban/backlog` with equal `createdAt` and `updatedAt`, a position after the existing tasks, canonical tags and a valid checklist structure
+- **THEN** a new `<uuid>.yaml` exists in `.ikanban/backlog` with equal `createdAt` and `updatedAt`, a position before the existing tasks, canonical tags and a valid checklist structure
+
+#### Scenario: New task is first in the column
+
+- **WHEN** an agent adds a task to a non-empty column
+- **THEN** the new task is ordered before every existing task in that column
+
+#### Scenario: Prepend when no position remains
+
+- **WHEN** the first task in the target column already has position `0`
+- **THEN** the agent rebalances that column locally, places the new task first and preserves the relative order of existing tasks
 
 #### Scenario: Update a task
 

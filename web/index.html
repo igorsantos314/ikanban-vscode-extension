@@ -1,0 +1,921 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iKanban — Local Kanban for VS Code, built for AI workflows</title>
+    <meta
+      name="description"
+      content="A local Kanban board inside VS Code. Every card is a readable YAML file, versioned with Git, with an AI-ready SKILL.md for local LLMs and spec-driven workflows."
+    />
+    <meta name="author" content="Igor Santos" />
+    <meta name="robots" content="index, follow" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#080c14" />
+
+    <!--
+      When deploying to a fixed domain, replace the relative og:image, og:url
+      and canonical URLs with the absolute URLs for that domain.
+    -->
+    <link rel="canonical" href="./" />
+    <link rel="icon" href="assets/ikanban.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="assets/icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:site_name" content="iKanban" />
+    <meta property="og:title" content="iKanban — Local Kanban for VS Code" />
+    <meta
+      property="og:description"
+      content="A local Kanban board inside VS Code, with every card saved as readable YAML. AI-ready, Git-friendly and fully offline."
+    />
+    <meta property="og:image" content="assets/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="iKanban board with Backlog, In Progress and Done columns" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="iKanban — Local Kanban for VS Code" />
+    <meta
+      name="twitter:description"
+      content="A local Kanban board inside VS Code, with every card saved as readable YAML. AI-ready, Git-friendly and fully offline."
+    />
+    <meta name="twitter:image" content="assets/og-image.png" />
+    <meta name="twitter:image:alt" content="iKanban board with Backlog, In Progress and Done columns" />
+
+    <link rel="stylesheet" href="styles.css" />
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="i-arrow-right" viewBox="0 0 24 24">
+        <path d="M5 12h14M13 6l6 6-6 6" />
+      </symbol>
+      <symbol id="i-arrow-up-right" viewBox="0 0 24 24">
+        <path d="M7 17 17 7M8 7h9v9" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="m5 12 4.5 4.5L19 7" />
+      </symbol>
+      <symbol id="i-github" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          stroke="none"
+          d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.28-.01-1.02-.01-2-3.2.7-3.88-1.54-3.88-1.54-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.69 5.41-5.25 5.69.41.35.78 1.05.78 2.12 0 1.53-.01 2.76-.01 3.14 0 .31.21.67.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5Z"
+        />
+      </symbol>
+      <symbol id="i-linkedin" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          stroke="none"
+          d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.34V8.99h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.29ZM5.32 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12ZM7.1 20.45H3.54V8.99H7.1v11.46ZM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0Z"
+        />
+      </symbol>
+      <symbol id="i-file-code" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6M10 13l-2 2 2 2M14 13l2 2-2 2" />
+      </symbol>
+      <symbol id="i-window" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M3 9h18M7 6.5h.01M10 6.5h.01" />
+      </symbol>
+      <symbol id="i-grip" viewBox="0 0 24 24">
+        <circle cx="9" cy="6" r="1" />
+        <circle cx="15" cy="6" r="1" />
+        <circle cx="9" cy="12" r="1" />
+        <circle cx="15" cy="12" r="1" />
+        <circle cx="9" cy="18" r="1" />
+        <circle cx="15" cy="18" r="1" />
+      </symbol>
+      <symbol id="i-checklist" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="m7 9 1.5 1.5L11 8M7 15l1.5 1.5L11 14M14 10h4M14 15h4" />
+      </symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24">
+        <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z" />
+        <path d="m9 12 2 2 4-4" />
+      </symbol>
+      <symbol id="i-sparkles" viewBox="0 0 24 24">
+        <path d="m12 3 1.7 4.8L18.5 9.5l-4.8 1.7L12 16l-1.7-4.8L5.5 9.5l4.8-1.7z" />
+        <path d="M18 15.5 18.8 18l2.5.8-2.5.8L18 22l-.8-2.4-2.5-.8 2.5-.8z" />
+      </symbol>
+      <symbol id="i-git-branch" viewBox="0 0 24 24">
+        <circle cx="6" cy="5" r="2.5" />
+        <circle cx="6" cy="19" r="2.5" />
+        <circle cx="18" cy="7" r="2.5" />
+        <path d="M6 7.5v9M18 9.5c0 4-4 4.5-9.5 6" />
+      </symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="m7 9 3 3-3 3M13 15h4" />
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="12" height="12" rx="2" />
+        <path d="M15 9V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4" />
+      </symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24">
+        <rect x="2" y="6" width="20" height="12" rx="2" />
+        <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6" />
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24">
+        <rect x="4" y="10" width="16" height="11" rx="2" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 3v12M7 10l5 5 5-5M4 21h16" />
+      </symbol>
+      <symbol id="i-brain" viewBox="0 0 24 24">
+        <path d="M9.5 4.5A3.5 3.5 0 0 0 6 8v.4A3.5 3.5 0 0 0 4.5 15a3.5 3.5 0 0 0 5 3.2V4.5ZM14.5 4.5A3.5 3.5 0 0 1 18 8v.4a3.5 3.5 0 0 1 1.5 6.6 3.5 3.5 0 0 1-5 3.2V4.5Z" />
+        <path d="M9.5 9H7M9.5 14H7M14.5 9H17M14.5 14H17" />
+      </symbol>
+      <symbol id="i-list" viewBox="0 0 24 24">
+        <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+      </symbol>
+      <symbol id="i-route" viewBox="0 0 24 24">
+        <circle cx="5" cy="6" r="2" />
+        <circle cx="19" cy="18" r="2" />
+        <path d="M7 6h6a4 4 0 0 1 4 4v6M17 18h-6a4 4 0 0 1-4-4V8" />
+      </symbol>
+    </svg>
+
+    <a class="skip-link" href="#content">Skip to content</a>
+
+    <header class="site-header" id="top">
+      <div class="container header-inner">
+        <a class="brand" href="#overview" aria-label="iKanban, back to top">
+          <span class="brand-mark">
+            <img src="assets/ikanban.svg" alt="" width="24" height="24" />
+          </span>
+          <span class="brand-name">iKanban</span>
+          <span class="brand-badge">local kanban</span>
+        </a>
+
+        <button
+          class="nav-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="primary-navigation"
+          aria-label="Open menu"
+        >
+          <span class="nav-toggle-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+        </button>
+
+        <nav class="nav" id="primary-navigation" aria-label="Main navigation">
+          <ul class="nav-list">
+            <li><a class="nav-link" href="#overview">Overview</a></li>
+            <li><a class="nav-link" href="#features">Features</a></li>
+            <li><a class="nav-link" href="#how-it-works">How it works</a></li>
+            <li><a class="nav-link" href="#ai">AI</a></li>
+            <li><a class="nav-link" href="#sdd">SDD</a></li>
+            <li><a class="nav-link" href="#install">Install</a></li>
+            <li><a class="nav-link" href="#faq">FAQ</a></li>
+            <li><a class="nav-link" href="#author">Author</a></li>
+          </ul>
+          <a
+            class="btn btn-primary btn-small nav-cta"
+            href="https://github.com/igorsantos314/ikanban-vscode-extension"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-github"></use></svg>
+            GitHub
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="content">
+      <section class="hero" id="overview" aria-labelledby="hero-title">
+        <div class="container hero-grid">
+          <div class="hero-copy" data-reveal>
+            <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Built for VS Code · Local Kanban · AI-ready</p>
+            <h1 id="hero-title">The Kanban board that lives in your <span class="gradient-text">repository</span>.</h1>
+            <p class="hero-lead">
+              Plan work on a visual board inside VS Code — with every card stored as readable YAML,
+              versioned with Git, and ready for the local LLM or AI assistant you already use.
+            </p>
+            <div class="hero-actions">
+              <a
+                class="btn btn-primary"
+                href="https://github.com/igorsantos314/ikanban-vscode-extension"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <svg class="icon" aria-hidden="true"><use href="#i-github"></use></svg>
+                View on GitHub
+                <svg class="icon icon-sm" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+              </a>
+              <a class="btn btn-ghost" href="#install">
+                How to install
+                <svg class="icon icon-sm" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+              </a>
+            </div>
+            <ul class="hero-points" aria-label="iKanban highlights">
+              <li><svg class="icon icon-sm" aria-hidden="true"><use href="#i-check"></use></svg> No account or server</li>
+              <li><svg class="icon icon-sm" aria-hidden="true"><use href="#i-check"></use></svg> YAML versioned with Git</li>
+              <li><svg class="icon icon-sm" aria-hidden="true"><use href="#i-check"></use></svg> AI-ready via SKILL.md</li>
+            </ul>
+            <div class="command-chip" aria-label="Command to initialize the board">
+              <span class="command-chip-label">VS Code</span>
+              <code>iKanban: Initialize Board</code>
+            </div>
+          </div>
+
+          <div class="hero-visual" data-reveal data-reveal-delay="120">
+            <div
+              class="board-window"
+              role="img"
+              aria-label="Illustrative iKanban board with Backlog, In Progress and Done columns"
+            >
+              <div class="board-titlebar" aria-hidden="true">
+                <span class="traffic"><i></i><i></i><i></i></span>
+                <span class="board-file">
+                  <svg class="icon icon-sm"><use href="#i-window"></use></svg>
+                  ikanban / board.yaml
+                </span>
+                <span class="board-status">local · git</span>
+              </div>
+
+              <div class="board-body" aria-hidden="true">
+                <div class="board-column">
+                  <div class="board-column-head">
+                    <span class="column-dot dot-backlog"></span>
+                    <span>Backlog</span>
+                    <span class="column-count">3</span>
+                  </div>
+                  <article class="mini-card">
+                    <div class="mini-card-top">
+                      <span class="pill pill-high">High</span>
+                      <span class="mini-card-id">#a91f</span>
+                    </div>
+                    <h3>Review onboarding flow</h3>
+                    <div class="mini-tags"><span class="tag tag-feat">feat</span><span class="tag tag-spec">spec</span></div>
+                    <div class="mini-meta">
+                      <span class="progress"><i style="width: 60%"></i></span>
+                      <span class="mini-count">3/5</span>
+                    </div>
+                  </article>
+                  <article class="mini-card mini-card-muted">
+                    <div class="mini-card-top">
+                      <span class="pill pill-medium">Medium</span>
+                    </div>
+                    <h3>Document the YAML schema</h3>
+                    <div class="mini-tags"><span class="tag tag-spec">spec</span></div>
+                  </article>
+                </div>
+
+                <div class="board-column">
+                  <div class="board-column-head">
+                    <span class="column-dot dot-progress"></span>
+                    <span>In Progress</span>
+                    <span class="column-count">2</span>
+                  </div>
+                  <article class="mini-card mini-card-active">
+                    <div class="mini-card-top">
+                      <span class="pill pill-medium">Medium</span>
+                      <span class="mini-card-id">#b42c</span>
+                    </div>
+                    <h3>Move cards with the keyboard</h3>
+                    <div class="mini-tags"><span class="tag tag-issue">issue</span></div>
+                    <div class="mini-meta">
+                      <span class="mini-deadline">Today, 18:00</span>
+                    </div>
+                  </article>
+                  <article class="mini-card mini-card-muted">
+                    <div class="mini-card-top">
+                      <span class="pill pill-low">Low</span>
+                    </div>
+                    <h3>Tune theme contrast</h3>
+                  </article>
+                </div>
+
+                <div class="board-column">
+                  <div class="board-column-head">
+                    <span class="column-dot dot-done"></span>
+                    <span>Done</span>
+                    <span class="column-count">8</span>
+                  </div>
+                  <article class="mini-card mini-card-done">
+                    <div class="mini-card-top">
+                      <span class="pill pill-done">Done</span>
+                    </div>
+                    <h3>Drag-and-drop between columns</h3>
+                    <div class="mini-meta">
+                      <span class="progress"><i style="width: 100%"></i></span>
+                      <span class="mini-count">5/5</span>
+                    </div>
+                  </article>
+                  <div class="drop-slot">Drop here</div>
+                </div>
+              </div>
+
+              <div class="board-footer" aria-hidden="true">
+                <span class="board-footer-item"><i class="status-dot"></i> 13 tasks</span>
+                <span class="board-footer-item">YAML · UTF-8</span>
+              </div>
+
+              <div class="floating-card" aria-hidden="true">
+                <span class="cursor-dot"></span>
+                <article class="mini-card mini-card-float">
+                  <div class="mini-card-top">
+                    <span class="pill pill-high">High</span>
+                  </div>
+                  <h3>Ship the landing page</h3>
+                  <div class="mini-tags"><span class="tag tag-feat">feat</span></div>
+                </article>
+              </div>
+
+              <div class="saved-toast" aria-hidden="true">
+                <svg class="icon icon-sm"><use href="#i-check"></use></svg>
+                <code>task.yaml</code>
+                <span>saved</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="container">
+          <ul class="trust-bar" data-reveal aria-label="iKanban principles">
+            <li><svg class="icon icon-sm" aria-hidden="true"><use href="#i-lock"></use></svg> No account</li>
+            <li><svg class="icon icon-sm" aria-hidden="true"><use href="#i-window"></use></svg> No server</li>
+            <li><svg class="icon icon-sm" aria-hidden="true"><use href="#i-file-code"></use></svg> No database</li>
+            <li><svg class="icon icon-sm" aria-hidden="true"><use href="#i-git-branch"></use></svg> No telemetry</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section section-showcase" aria-labelledby="showcase-title">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <p class="kicker">Local storage</p>
+            <h2 id="showcase-title">One board. Files you can actually read.</h2>
+            <p>
+              No proprietary database or painful export. Every card is a YAML file inside
+              <code class="inline-code">.ikanban/</code> — open, portable and ready for Git.
+            </p>
+          </header>
+
+          <div class="showcase-grid">
+            <div class="yaml-panel" data-reveal>
+              <div class="panel-bar" aria-hidden="true">
+                <span class="traffic traffic-sm"><i></i><i></i><i></i></span>
+                <span class="file-path">.ikanban/backlog/550e8400-e29b-41d4-a716-446655440000.yaml</span>
+                <span class="panel-badge">YAML</span>
+              </div>
+              <pre class="yaml-code" aria-label="Example YAML task file"><code><span class="code-line"><span class="ln">1</span><span><span class="tok-key">id</span>: <span class="tok-str">"550e8400-e29b-41d4-a716-446655440000"</span></span></span>
+<span class="code-line"><span class="ln">2</span><span><span class="tok-key">title</span>: <span class="tok-str">"Review onboarding flow"</span></span></span>
+<span class="code-line"><span class="ln">3</span><span><span class="tok-key">description</span>: <span class="tok-str">"Polish the first-run experience"</span></span></span>
+<span class="code-line"><span class="ln">4</span><span><span class="tok-key">tags</span>:</span></span>
+<span class="code-line"><span class="ln">5</span><span>  - <span class="tok-str">feat</span></span></span>
+<span class="code-line"><span class="ln">6</span><span>  - <span class="tok-str">spec</span></span></span>
+<span class="code-line"><span class="ln">7</span><span><span class="tok-key">priority</span>: <span class="tok-str">high</span></span></span>
+<span class="code-line"><span class="ln">8</span><span><span class="tok-key">position</span>: <span class="tok-num">1024</span></span></span>
+<span class="code-line"><span class="ln">9</span><span><span class="tok-key">dueAt</span>: <span class="tok-str">"2026-12-02T17:00:00.000Z"</span></span></span>
+<span class="code-line"><span class="ln">10</span><span><span class="tok-key">checklists</span>:</span></span>
+<span class="code-line"><span class="ln">11</span><span>  - <span class="tok-key">title</span>: <span class="tok-str">"Launch checklist"</span></span></span>
+<span class="code-line"><span class="ln">12</span><span>    <span class="tok-key">items</span>:</span></span>
+<span class="code-line"><span class="ln">13</span><span>      - <span class="tok-key">text</span>: <span class="tok-str">"Proofread the copy"</span></span></span>
+<span class="code-line"><span class="ln">14</span><span>        <span class="tok-key">completed</span>: <span class="tok-bool">true</span></span></span>
+<span class="code-line"><span class="ln">15</span><span>      - <span class="tok-key">text</span>: <span class="tok-str">"Test in a clean workspace"</span></span></span>
+<span class="code-line"><span class="ln">16</span><span>        <span class="tok-key">completed</span>: <span class="tok-bool">false</span></span></span>
+<span class="code-line"><span class="ln">17</span><span><span class="tok-key">createdAt</span>: <span class="tok-str">"2026-11-24T09:00:00.000Z"</span></span></span>
+<span class="code-line"><span class="ln">18</span><span><span class="tok-key">updatedAt</span>: <span class="tok-str">"2026-11-24T09:42:00.000Z"</span></span></span></code></pre>
+            </div>
+
+            <div class="showcase-side">
+              <article class="side-card" data-reveal data-reveal-delay="80">
+                <span class="side-icon side-icon-blue">
+                  <svg class="icon" aria-hidden="true"><use href="#i-git-branch"></use></svg>
+                </span>
+                <div>
+                  <h3>Git is the database</h3>
+                  <p>Every board change shows up as a reviewable diff. Commit it, open a PR, or roll back in time.</p>
+                </div>
+                <div class="commit-chip">
+                  <span class="commit-dot" aria-hidden="true"></span>
+                  <code>git commit -m "move: review onboarding → done"</code>
+                </div>
+              </article>
+              <article class="side-card" data-reveal data-reveal-delay="140">
+                <span class="side-icon side-icon-green">
+                  <svg class="icon" aria-hidden="true"><use href="#i-lock"></use></svg>
+                </span>
+                <div>
+                  <h3>Zero lock-in</h3>
+                  <p>Read, edit and version your cards outside VS Code. The format belongs to you, not the tool.</p>
+                </div>
+              </article>
+              <article class="side-card" data-reveal data-reveal-delay="200">
+                <span class="side-icon side-icon-amber">
+                  <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+                </span>
+                <div>
+                  <h3>Validation built in</h3>
+                  <p>Invalid YAML appears in the Problems panel. Optimistic revisions protect against external edits.</p>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="features" aria-labelledby="features-title">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <p class="kicker">Features</p>
+            <h2 id="features-title">Everything a local Kanban needs.</h2>
+            <p>No extra plugins, no subscription, no mandatory sync. Just your board, your editor and your files.</p>
+          </header>
+
+          <div class="feature-grid">
+            <article class="feature-card" data-reveal>
+              <span class="feature-icon feature-icon-blue">
+                <svg class="icon" aria-hidden="true"><use href="#i-file-code"></use></svg>
+              </span>
+              <h3>YAML that means something</h3>
+              <p>One file per task with title, description, priority, tags, checklists, deadlines and timestamps. Readable by humans and by agents.</p>
+              <span class="feature-tag">local by design</span>
+            </article>
+            <article class="feature-card" data-reveal data-reveal-delay="60">
+              <span class="feature-icon feature-icon-teal">
+                <svg class="icon" aria-hidden="true"><use href="#i-window"></use></svg>
+              </span>
+              <h3>Native to VS Code</h3>
+              <p>Activity Bar, Command Palette and your editor theme. Open the board, create tasks and validate it without leaving the IDE.</p>
+              <span class="feature-tag">VS Code 1.147+</span>
+            </article>
+            <article class="feature-card" data-reveal data-reveal-delay="120">
+              <span class="feature-icon feature-icon-violet">
+                <svg class="icon" aria-hidden="true"><use href="#i-grip"></use></svg>
+              </span>
+              <h3>Frictionless movement</h3>
+              <p>Drag cards between columns with preview and animation — or use <kbd>Alt</kbd> + arrow keys to move everything from the keyboard.</p>
+              <span class="feature-tag">pointer + keyboard</span>
+            </article>
+            <article class="feature-card" data-reveal>
+              <span class="feature-icon feature-icon-amber">
+                <svg class="icon" aria-hidden="true"><use href="#i-checklist"></use></svg>
+              </span>
+              <h3>Cards with depth</h3>
+              <p>Priority, visual tags, checklist progress, deadlines and the last-updated timestamp on every card.</p>
+              <span class="feature-tag">rich details</span>
+            </article>
+            <article class="feature-card" data-reveal data-reveal-delay="60">
+              <span class="feature-icon feature-icon-green">
+                <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+              </span>
+              <h3>Reliable by default</h3>
+              <p>Syntax, schema and cross-file validation. Optimistic revisions and a watcher protect against external edits.</p>
+              <span class="feature-tag">Problems panel</span>
+            </article>
+            <article class="feature-card" data-reveal data-reveal-delay="120">
+              <span class="feature-icon feature-icon-pink">
+                <svg class="icon" aria-hidden="true"><use href="#i-brain"></use></svg>
+              </span>
+              <h3>Built for AI workflows</h3>
+              <p>Install the portable SKILL.md and let a local LLM or coding assistant create, move and edit tasks using the board's rules.</p>
+              <span class="feature-tag">SKILL.md ready</span>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-steps" id="how-it-works" aria-labelledby="how-it-works-title">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <p class="kicker">How it works</p>
+            <h2 id="how-it-works-title">From zero to your first card in three steps.</h2>
+            <p>No server setup. No sign-up. Just a workspace and VS Code.</p>
+          </header>
+
+          <ol class="steps">
+            <li class="step" data-reveal>
+              <span class="step-number">01</span>
+              <h3>Prepare the environment</h3>
+              <p>Install the extension from the repository VSIX or run the project with <kbd>F5</kbd>. Requires VS Code 1.147+ and a trusted workspace.</p>
+              <span class="step-meta"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-download"></use></svg> VSIX or source</span>
+            </li>
+            <li class="step" data-reveal data-reveal-delay="80">
+              <span class="step-number">02</span>
+              <h3>Initialize the board</h3>
+              <p>Run the command and iKanban creates <code class="inline-code">.ikanban/</code> with Backlog, In Progress and Done columns.</p>
+              <div class="command-chip command-chip-small">
+                <code>iKanban: Initialize Board</code>
+              </div>
+            </li>
+            <li class="step" data-reveal data-reveal-delay="160">
+              <span class="step-number">03</span>
+              <h3>Work your way</h3>
+              <p>Drag cards, edit YAML by hand, or let an AI agent handle the flow. Everything stays in your workspace.</p>
+              <span class="step-meta"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-keyboard"></use></svg> mouse, keyboard or agent</span>
+            </li>
+          </ol>
+
+          <p class="steps-note" data-reveal>
+            Want to contribute? Run it in development mode:
+            <code class="inline-code">npm install &amp;&amp; npm run build</code> and press <kbd>F5</kbd>.
+          </p>
+        </div>
+      </section>
+
+      <section class="section section-ai" id="ai" aria-labelledby="ai-title">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <p class="kicker">AI &amp; local LLMs</p>
+            <h2 id="ai-title">Bring your own model. Keep the board in control.</h2>
+            <p>
+              iKanban does not lock you into a hosted assistant. Install the portable
+              <code class="inline-code">SKILL.md</code> contract and connect the local LLM or coding
+              assistant you already use: it can read the board rules to create tasks, move cards and
+              edit YAML safely, with better context and fewer mistakes.
+            </p>
+          </header>
+
+          <div class="ai-grid">
+            <div class="agent-panel" data-reveal>
+              <div class="panel-bar" aria-hidden="true">
+                <span class="traffic traffic-sm"><i></i><i></i><i></i></span>
+                <span class="file-path">local agent · skill loaded</span>
+                <span class="panel-badge panel-badge-green">ready</span>
+              </div>
+              <div class="agent-body">
+                <div class="agent-row agent-row-user">
+                  <span class="agent-avatar">You</span>
+                  <p>Move the onboarding card to Done and add a checklist item for the clean-workspace test.</p>
+                </div>
+                <div class="agent-row agent-row-assistant">
+                  <span class="agent-avatar agent-avatar-ai">
+                    <svg class="icon icon-sm" aria-hidden="true"><use href="#i-sparkles"></use></svg>
+                  </span>
+                  <div>
+                    <p>Done. I moved the card, added the checklist item, updated <code>updatedAt</code> and validated the YAML.</p>
+                    <ul class="agent-tools">
+                      <li><code>read</code> .agents/skills/ikanban/SKILL.md</li>
+                      <li><code>move</code> review-onboarding → done</li>
+                      <li><code>validate</code> .ikanban/ ✓</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div class="agent-footer">
+                <span class="agent-command"><code>iKanban: Install AI Skill</code></span>
+                <span class="agent-path">.agents/skills/ikanban/SKILL.md</span>
+              </div>
+            </div>
+
+            <div class="ai-side">
+              <article class="ai-point" data-reveal data-reveal-delay="60">
+                <span class="ai-point-icon">
+                  <svg class="icon" aria-hidden="true"><use href="#i-route"></use></svg>
+                </span>
+                <div>
+                  <h3>Provider-neutral</h3>
+                  <p>Use the local LLM, coding assistant or agent runner you already trust. The skill is plain Markdown.</p>
+                </div>
+              </article>
+              <article class="ai-point" data-reveal data-reveal-delay="120">
+                <span class="ai-point-icon">
+                  <svg class="icon" aria-hidden="true"><use href="#i-list"></use></svg>
+                </span>
+                <div>
+                  <h3>Board-aware context</h3>
+                  <p>The skill documents columns, UUIDs, timestamps, positions, tags, validation rules and safe edit practices.</p>
+                </div>
+              </article>
+              <article class="ai-point" data-reveal data-reveal-delay="180">
+                <span class="ai-point-icon">
+                  <svg class="icon" aria-hidden="true"><use href="#i-lock"></use></svg>
+                </span>
+                <div>
+                  <h3>No hidden service</h3>
+                  <p>No hosted AI account, no cloud dependency and no API key baked into the extension. You choose the model and the interface.</p>
+                </div>
+              </article>
+              <div class="ai-actions" data-reveal data-reveal-delay="220">
+                <a
+                  class="btn btn-ghost btn-small"
+                  href="https://github.com/igorsantos314/ikanban-vscode-extension#ai-agents-local-llms-and-the-skill"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Read the AI docs
+                  <svg class="icon icon-sm" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+                </a>
+                <span class="ai-note">The skill is a Markdown contract, not a runtime model.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-sdd" id="sdd" aria-labelledby="sdd-title">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <p class="kicker">Spec-Driven Development</p>
+            <h2 id="sdd-title">Specs in. Predictable boards out.</h2>
+            <p>
+              Pair iKanban with a spec-driven workflow to turn requirements into a reviewable plan,
+              then into cards that any developer — or low-cost model — can execute safely.
+            </p>
+          </header>
+
+          <ol class="sdd-flow" aria-label="Spec-driven workflow" data-reveal>
+            <li class="sdd-node">
+              <span class="sdd-node-icon"><svg class="icon" aria-hidden="true"><use href="#i-file-code"></use></svg></span>
+              <strong>Spec</strong>
+              <span>Intent and acceptance criteria</span>
+            </li>
+            <li class="sdd-node">
+              <span class="sdd-node-icon"><svg class="icon" aria-hidden="true"><use href="#i-list"></use></svg></span>
+              <strong>Tasks</strong>
+              <span>Small, ordered steps</span>
+            </li>
+            <li class="sdd-node sdd-node-active">
+              <span class="sdd-node-icon"><svg class="icon" aria-hidden="true"><use href="#i-window"></use></svg></span>
+              <strong>Board</strong>
+              <span>Reviewable YAML cards</span>
+            </li>
+            <li class="sdd-node">
+              <span class="sdd-node-icon"><svg class="icon" aria-hidden="true"><use href="#i-terminal"></use></svg></span>
+              <strong>Code</strong>
+              <span>Scoped, validated changes</span>
+            </li>
+          </ol>
+
+          <div class="sdd-grid">
+            <article class="sdd-card" data-reveal>
+              <h3>Clear acceptance criteria</h3>
+              <p>Specs and tasks define “done” before code changes, and the board mirrors that plan.</p>
+            </article>
+            <article class="sdd-card" data-reveal data-reveal-delay="60">
+              <h3>Reviewable artifacts</h3>
+              <p>Every spec change and card move is a text diff, so reviews stay concrete and traceable.</p>
+            </article>
+            <article class="sdd-card" data-reveal data-reveal-delay="120">
+              <h3>Smaller, cheaper prompts</h3>
+              <p>Structured tasks give low-cost models the context they need without massive prompts.</p>
+            </article>
+            <article class="sdd-card" data-reveal data-reveal-delay="180">
+              <h3>Safer edits</h3>
+              <p>Explicit scope and validation reduce speculative changes and accidental overwrites.</p>
+            </article>
+          </div>
+
+          <aside class="model-callout" data-reveal>
+            <span class="model-callout-icon">
+              <svg class="icon" aria-hidden="true"><use href="#i-brain"></use></svg>
+            </span>
+            <div>
+              <p class="model-callout-title">A good fit for low-cost models</p>
+              <p>
+                A model such as <strong>DeepSeek V4.1 Flash 1017</strong> can follow structured specs and
+                task lists to manage the board at a fraction of the cost of larger models — while you keep
+                review and approval in the loop.
+              </p>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section" id="install" aria-labelledby="install-title">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <p class="kicker">Installation</p>
+            <h2 id="install-title">Start now, your way.</h2>
+            <p>iKanban is distributed through the repository. Download the VSIX to use the extension or run the source to contribute.</p>
+          </header>
+
+          <div class="install-grid">
+            <article class="install-card install-card-primary" data-reveal>
+              <span class="install-badge">Fastest path</span>
+              <span class="install-icon">
+                <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
+              </span>
+              <h3>Use the extension</h3>
+              <p>Download the latest <code class="inline-code">.vsix</code> from the repository page and install it in VS Code.</p>
+              <ol class="install-steps">
+                <li>Open the <strong>Extensions</strong> view in VS Code.</li>
+                <li>Click <strong>···</strong> and choose <strong>Install from VSIX…</strong>.</li>
+                <li>Select the downloaded file and run <strong>iKanban: Initialize Board</strong>.</li>
+              </ol>
+              <a
+                class="btn btn-primary"
+                href="https://github.com/igorsantos314/ikanban-vscode-extension"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <svg class="icon" aria-hidden="true"><use href="#i-github"></use></svg>
+                Open repository
+                <svg class="icon icon-sm" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+              </a>
+            </article>
+
+            <article class="install-card" data-reveal data-reveal-delay="100">
+              <span class="install-icon install-icon-mono">
+                <svg class="icon" aria-hidden="true"><use href="#i-terminal"></use></svg>
+              </span>
+              <h3>Run from source</h3>
+              <p>Clone the project, install dependencies and open it in VS Code to run from source.</p>
+              <div class="code-block">
+                <div class="code-head">
+                  <span>terminal</span>
+                  <button
+                    class="copy-button"
+                    type="button"
+                    data-copy-target="install-command"
+                    aria-label="Copy installation commands"
+                  >
+                    <svg class="icon icon-sm" aria-hidden="true"><use href="#i-copy"></use></svg>
+                    <span>Copy</span>
+                  </button>
+                </div>
+                <pre id="install-command"><code>git clone https://github.com/igorsantos314/ikanban-vscode-extension.git
+cd ikanban-vscode-extension
+npm install
+npm run build</code></pre>
+              </div>
+              <p class="install-hint">
+                Then open the folder in VS Code and press <kbd>F5</kbd> to launch the
+                <strong>Extension Development Host</strong>.
+              </p>
+              <p class="install-req">Requires VS Code 1.147 or newer and a trusted workspace for writing board files.</p>
+              <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="faq" aria-labelledby="faq-title">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <p class="kicker">FAQ</p>
+            <h2 id="faq-title">Frequently asked questions.</h2>
+            <p>The essentials for understanding how iKanban stores, moves and protects your work.</p>
+          </header>
+
+          <div class="faq-list">
+            <details class="faq-item" data-reveal>
+              <summary>Is iKanban free?</summary>
+              <p>Yes. The project is open source under the MIT license. You can use, study, modify and distribute it.</p>
+            </details>
+            <details class="faq-item" data-reveal>
+              <summary>Do I need an account or internet?</summary>
+              <p>No. The board works offline and has no login, sync or server. Your files stay in the workspace.</p>
+            </details>
+            <details class="faq-item" data-reveal>
+              <summary>Where is my data stored?</summary>
+              <p>In <code class="inline-code">.ikanban/</code>, next to your code: <code class="inline-code">board.yaml</code>, one folder per column and one YAML file per task.</p>
+            </details>
+            <details class="faq-item" data-reveal>
+              <summary>Can I use it with Git?</summary>
+              <p>That is the point. Every card is a text file, so commits and pull requests show exactly what changed on the board.</p>
+            </details>
+            <details class="faq-item" data-reveal>
+              <summary>Can I edit the YAML by hand?</summary>
+              <p>Yes. iKanban validates files and watches for external changes. Operations use revisions to avoid overwriting manual edits.</p>
+            </details>
+            <details class="faq-item" data-reveal>
+              <summary>How does the AI integration work?</summary>
+              <p>iKanban ships a portable <code class="inline-code">SKILL.md</code> that any local LLM or coding assistant with workspace access can read. Install it with <strong>iKanban: Install AI Skill</strong>; no hosted AI service or model API key is required.</p>
+            </details>
+            <details class="faq-item" data-reveal>
+              <summary>Why use iKanban with SDD?</summary>
+              <p>Spec-driven development turns intent into reviewable specs and tasks, and the board mirrors that plan in plain YAML. That structure makes low-cost models such as DeepSeek V4.1 Flash 1017 more predictable while keeping human review and approval in the loop.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-author" id="author" aria-labelledby="author-title">
+        <div class="container">
+          <div class="author-card" data-reveal>
+            <div class="author-avatar" aria-hidden="true">IS</div>
+            <div class="author-copy">
+              <p class="kicker">About the author</p>
+              <h2 id="author-title">Igor Santos</h2>
+              <p>
+                Creator of iKanban. I build local, transparent tools that keep data and workflow with
+                the people using them.
+              </p>
+              <div class="author-actions">
+                <a
+                  class="btn btn-ghost"
+                  href="https://www.linkedin.com/in/igor-santos-8383941a6/"
+                  target="_blank"
+                  rel="noopener noreferrer me"
+                >
+                  <svg class="icon" aria-hidden="true"><use href="#i-linkedin"></use></svg>
+                  LinkedIn
+                  <svg class="icon icon-sm" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+                </a>
+                <a
+                  class="btn btn-ghost"
+                  href="https://github.com/igorsantos314"
+                  target="_blank"
+                  rel="noopener noreferrer me"
+                >
+                  <svg class="icon" aria-hidden="true"><use href="#i-github"></use></svg>
+                  GitHub
+                  <svg class="icon icon-sm" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+                </a>
+                <a
+                  class="btn btn-ghost"
+                  href="https://github.com/igorsantos314/ikanban-vscode-extension"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <svg class="icon" aria-hidden="true"><use href="#i-file-code"></use></svg>
+                  Repository
+                  <svg class="icon icon-sm" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-grid">
+        <div class="footer-brand">
+          <a class="brand" href="#overview" aria-label="iKanban, back to top">
+            <span class="brand-mark">
+              <img src="assets/ikanban.svg" alt="" width="24" height="24" />
+            </span>
+            <span class="brand-name">iKanban</span>
+          </a>
+          <p>Local Kanban for VS Code. Your cards, your files, your repository.</p>
+          <p class="footer-note">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-lock"></use></svg>
+            No account, no server, no telemetry.
+          </p>
+        </div>
+
+        <nav class="footer-col" aria-label="Product">
+          <h3>Product</h3>
+          <ul>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#how-it-works">How it works</a></li>
+            <li><a href="#ai">AI &amp; local LLMs</a></li>
+            <li><a href="#sdd">SDD</a></li>
+            <li><a href="#install">Install</a></li>
+            <li><a href="#faq">FAQ</a></li>
+          </ul>
+        </nav>
+
+        <nav class="footer-col" aria-label="Project">
+          <h3>Project</h3>
+          <ul>
+            <li>
+              <a
+                href="https://github.com/igorsantos314/ikanban-vscode-extension"
+                target="_blank"
+                rel="noopener noreferrer"
+              >Repository</a>
+            </li>
+            <li>
+              <a
+                href="https://github.com/igorsantos314/ikanban-vscode-extension#readme"
+                target="_blank"
+                rel="noopener noreferrer"
+              >README</a>
+            </li>
+            <li>
+              <a
+                href="https://github.com/igorsantos314/ikanban-vscode-extension/blob/main/LICENSE"
+                target="_blank"
+                rel="noopener noreferrer"
+              >MIT License</a>
+            </li>
+          </ul>
+        </nav>
+
+        <nav class="footer-col" aria-label="Author">
+          <h3>Author</h3>
+          <ul>
+            <li>
+              <a
+                href="https://www.linkedin.com/in/igor-santos-8383941a6/"
+                target="_blank"
+                rel="noopener noreferrer me"
+              >LinkedIn</a>
+            </li>
+            <li>
+              <a
+                href="https://github.com/igorsantos314"
+                target="_blank"
+                rel="noopener noreferrer me"
+              >GitHub</a>
+            </li>
+            <li><a href="#author">About the author</a></li>
+          </ul>
+        </nav>
+      </div>
+
+      <div class="container footer-bottom">
+        <p>© <span data-year>2026</span> Igor Santos. iKanban is open source under the MIT license.</p>
+        <p>Built to run in your VS Code, with your data.</p>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -4,3 +4,5 @@ node_modules
 .vscode-test/
 *.vsix
 .ikanban/.index/
+.ikanban/
+artigo-ikanban-openspec.md

@@ -316,6 +316,93 @@ describe('pagination state', () => {
     expect(state.pages.backlog?.tasksRevision).toBe('rev-2');
   });
 
+  it('replaces tasks in both columns when a task moves between them', () => {
+    const multiColumnSnapshot = (
+      backlogRevision: string,
+      doneRevision: string,
+      tasks: TaskView[],
+    ): BoardSnapshot => ({
+      workspaceName: 'Workspace',
+      board: { version: 1, name: 'Board', columnIds: ['backlog', 'done'], revision: 'b' },
+      columns: [
+        {
+          id: 'backlog',
+          title: 'Backlog',
+          color: '#64748b',
+          revision: 'col-a',
+          taskCount: tasks.filter((entry) => entry.columnId === 'backlog').length,
+          loadedCount: tasks.filter((entry) => entry.columnId === 'backlog').length,
+          tasksRevision: backlogRevision,
+          hasMore: false,
+          nextCursor: null,
+        },
+        {
+          id: 'done',
+          title: 'Done',
+          color: '#22c55e',
+          revision: 'col-b',
+          taskCount: tasks.filter((entry) => entry.columnId === 'done').length,
+          loadedCount: tasks.filter((entry) => entry.columnId === 'done').length,
+          tasksRevision: doneRevision,
+          hasMore: false,
+          nextCursor: null,
+        },
+      ],
+      tasks,
+      issues: [],
+      canInitialize: false,
+    });
+
+    const backlogTask = task({ id: 'a', columnId: 'backlog' });
+    const doneTask = task({ id: 'b', columnId: 'done' });
+    let state = boardReducer(initialBoardState, {
+      type: 'loaded',
+      snapshot: multiColumnSnapshot('backlog-1', 'done-1', [backlogTask, doneTask]),
+    });
+    state = boardReducer(state, {
+      type: 'loaded',
+      snapshot: multiColumnSnapshot('backlog-2', 'done-2', [
+        task({ ...backlogTask, columnId: 'done' }),
+        doneTask,
+      ]),
+    });
+
+    expect(state.snapshot?.tasks.map((entry) => [entry.id, entry.columnId])).toEqual([
+      ['a', 'done'],
+      ['b', 'done'],
+    ]);
+    expect(state.snapshot?.columns.find((entry) => entry.id === 'backlog')?.taskCount).toBe(0);
+    expect(state.snapshot?.columns.find((entry) => entry.id === 'done')?.taskCount).toBe(2);
+  });
+
+  it('ignores a page response for a revision that is no longer current', () => {
+    const first = task({ id: 'a', position: 1024 });
+    const replacement = task({ id: 'c', position: 1024 });
+    const stale = task({ id: 'stale', position: 3072 });
+    let state = boardReducer(initialBoardState, {
+      type: 'loaded',
+      snapshot: pagedSnapshot('rev-1', [first]),
+    });
+    state = boardReducer(state, {
+      type: 'loaded',
+      snapshot: pagedSnapshot('rev-2', [replacement]),
+    });
+    state = boardReducer(state, {
+      type: 'page-loaded',
+      columnId: 'backlog',
+      page: {
+        columnId: 'backlog',
+        tasks: [stale],
+        nextCursor: null,
+        hasMore: false,
+        taskCount: 2,
+        tasksRevision: 'rev-1',
+      },
+    });
+    expect(state.snapshot?.tasks.map((entry) => entry.id)).toEqual(['c']);
+    expect(state.pages.backlog?.tasksRevision).toBe('rev-2');
+  });
+
   it('does not duplicate repeated page tasks', () => {
     const first = task({ id: 'a', position: 1024 });
     const state = boardReducer(

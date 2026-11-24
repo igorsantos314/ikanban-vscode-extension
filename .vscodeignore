@@ -3,6 +3,7 @@
 .ikanban/**
 .agents/**
 AGENTS.md
+web/**
 scripts/**
 src/**
 openspec/**

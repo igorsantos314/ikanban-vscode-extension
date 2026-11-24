@@ -1,7 +1,7 @@
 {
   "name": "ikanban",
   "displayName": "iKanban",
-  "description": "Local-first Kanban board for VS Code, stored as portable YAML files.",
+  "description": "Local Kanban board for VS Code with portable YAML files and an AI-ready SKILL.md for local LLM workflows.",
   "version": "0.3.1",
   "publisher": "ikanban",
   "license": "MIT",
@@ -28,7 +28,10 @@
     "kanban",
     "tasks",
     "yaml",
-    "local-first"
+    "local",
+    "ai",
+    "llm",
+    "sdd"
   ],
   "activationEvents": [
     "onWebviewPanel:ikanban.board"

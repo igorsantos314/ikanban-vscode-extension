@@ -1,7 +1,7 @@
 import type { HomeViewState } from './homeState';
 
 const DESCRIPTION =
-  'Local-first Kanban stored as portable YAML files in <code>.ikanban</code>.';
+  'Local Kanban with portable YAML files in <code>.ikanban</code> and an AI-ready skill.';
 
 const PLACEMENT_NOTE =
   'The board opens in the editor area. This panel never opens it automatically.';

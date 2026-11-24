@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added a standalone English landing page under `web/` with a product tour, AI/local LLM workflow, SDD benefits and installation paths, linking the GitHub repository and the author's LinkedIn.
+- Updated the extension and README description to call iKanban a "local Kanban" board and to highlight the AI-ready `SKILL.md` workflow and spec-driven development, including low-cost models such as DeepSeek V4.1 Flash 1017.
 - Fixed a drag-and-drop crash where moving several cards between columns, especially near a column or card boundary, could make React throw "Maximum update depth exceeded" and close the board. Drag-over previews are now coalesced to one commit per animation frame, and dropping a card still uses the latest previewed target.
 
 ## 0.3.1

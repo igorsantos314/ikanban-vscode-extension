@@ -1,6 +1,8 @@
 # iKanban
 
-iKanban is a local-first Kanban board for Visual Studio Code. It stores every column and task as readable YAML inside a `.ikanban` directory, so a board can be committed to Git, reviewed in a pull request, edited by hand, or copied to another machine without a server, account or database.
+iKanban is a local Kanban board for Visual Studio Code. It stores every column and task as readable YAML inside a `.ikanban` directory, so a board can be committed to Git, reviewed in a pull request, edited by hand, or copied to another machine without a server, account or database. It is AI-ready: a portable `SKILL.md` contract lets a local LLM or coding assistant understand the board rules and manage tasks, and the text-first workflow pairs naturally with spec-driven development.
+
+A standalone English landing page lives in [`web/`](web/index.html).
 
 ## Features
 
@@ -11,7 +13,8 @@ iKanban is a local-first Kanban board for Visual Studio Code. It stores every co
 - Per-column lazy loading with a 20-task first page, infinite scroll and a **Load more** fallback, backed by a derived, self-repairing index.
 - A reusable create/edit task dialog with click-to-edit fields, debounced autosave, validation, conflict reload, discard confirmation, checklist editing and read-only creation/last-updated timestamps.
 - A Command Palette action that creates a task from a column and title prompt and opens the board.
-- A portable agent skill that any AI assistant can install into the workspace to create, update, move, reorder and remove tasks directly.
+- A portable agent skill that lets a local LLM or coding assistant install the board contract and create, update, move, reorder and remove tasks directly.
+- A workflow that fits spec-driven development: explicit specs and reviewable YAML cards make low-cost models more predictable while keeping human review in the loop.
 - Validation of YAML syntax, document schemas and cross-file relationships, published to the VS Code Problems panel.
 - External file-change detection with debounced refresh and optimistic revision checks to prevent silently overwriting manual edits.
 - A refined board and task dialog with layered surfaces, colored priority badges, neutral tag chips, compact metadata and consistent hover/focus states.
@@ -66,9 +69,9 @@ The actions follow that state:
 
 The board itself remains an editor panel; the Activity Bar position (left or right) follows your VS Code layout settings, and iKanban does not move it.
 
-## AI agents and the skill
+## AI agents, local LLMs and the skill
 
-iKanban ships a portable, provider-neutral agent skill. It is a plain `SKILL.md` contract that any AI assistant with workspace file access can read and follow directly; it does not require an MCP server, a network service or a specific model.
+iKanban is AI-ready without tying you to a hosted service. It ships a portable, provider-neutral agent skill. It is a plain `SKILL.md` contract that any local LLM or coding assistant with workspace file access can read and follow directly; it does not require an MCP server, a network service, a specific model or an API key.
 
 Install it in the selected workspace with **iKanban: Install AI Skill** (`ikanban.installAgentSkill`). The command writes:
 
@@ -93,6 +96,15 @@ Agents that discover `AGENTS.md` or `.agents/skills/` can then use the skill dir
 The skill documents the `.ikanban` layout, the full task schema, UUID rules, ISO 8601 UTC timestamps, position spacing, supported tags and the safety rules for direct edits. In particular, an agent must set `createdAt` and `updatedAt` when creating a task, keep `createdAt` unchanged afterwards, refresh `updatedAt` on every successful change or move, never add a status field, use only columns from `board.yaml` and validate the result. The extension's file watcher and Problems panel still report invalid external edits.
 
 The same skill file is useful to humans who want to edit the board by hand or write their own automation. See [Board storage format](#board-storage-format) for the exact YAML shape.
+
+## Spec-Driven Development
+
+iKanban works well as the visible execution layer of a spec-driven development (SDD) workflow. Specs and tasks define intent and acceptance criteria; the board turns that plan into reviewable YAML cards; the implementation follows with explicit scope.
+
+- Clear specs and small tasks reduce ambiguity before code changes and give the board a traceable plan.
+- Every spec change and card move is a text diff, so reviews stay concrete and can be committed or reverted with Git.
+- Structured task lists require less prompt context, which makes low-cost models practical. For example, a model such as **DeepSeek V4.1 Flash 1017** can follow structured specs and task lists to manage the board while a human keeps review and approval in the loop.
+- The extension does not generate specifications or run an SDD engine itself; it provides the persistent, Git-friendly board that the workflow writes to.
 
 ## Using the board
 
